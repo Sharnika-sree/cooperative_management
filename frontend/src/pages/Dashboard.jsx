@@ -7,7 +7,6 @@ import {
   Thermometer, Droplets, Clock, Megaphone, CheckCircle2, 
   HelpCircle, ChevronRight, User, Award, ListFilter, ClipboardList, Send, Edit, X, ShieldAlert 
 } from 'lucide-react'
-import Chatbot from '../components/Chatbot'
 
 // Centralized UI Labels for localization (e.g., Tamil support later)
 const uiLabels = {
@@ -67,7 +66,6 @@ const Dashboard = () => {
   const [showSchemesInfo, setShowSchemesInfo] = useState(false)
   const [showFertilizerInfo, setShowFertilizerInfo] = useState(false)
   const [showRequestsInfo, setShowRequestsInfo] = useState(false)
-  const [showChatbotWindow, setShowChatbotWindow] = useState(false)
 
   useEffect(() => {
     fetchDashboardData()

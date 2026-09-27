@@ -163,12 +163,12 @@ class SoilDiagnosisEngine:
             n_msg = f"Nitrogen score ({n_val}) is optimal for {orig_crop_name}."
         elif n_val == 0.5:
             n_status = "Moderate"
-            n_msg = f"Nitrogen score ({n_val}) is sub-optimal for {orig_crop_name} (Requirement: {n_req})."
+            n_msg = f"Nitrogen is at a moderate level for {orig_crop_name}."
             reasons.append(f"Nitrogen score ({n_val}) is sub-optimal.")
             suggestions.append("Improve nitrogen availability based on soil-test/agronomic recommendations.")
         else:
             n_status = "Low"
-            n_msg = f"Nitrogen score ({n_val}) is deficient for {orig_crop_name} (Requirement: {n_req})."
+            n_msg = f"Nitrogen is low for {orig_crop_name}."
             reasons.append(f"Nitrogen score ({n_val}) is deficient.")
             suggestions.append("Improve nitrogen availability based on soil-test/agronomic recommendations.")
             
@@ -187,12 +187,12 @@ class SoilDiagnosisEngine:
             p_msg = f"Phosphorus score ({p_val}) is optimal for {orig_crop_name}."
         elif p_val == 0.5:
             p_status = "Moderate"
-            p_msg = f"Phosphorus score ({p_val}) is sub-optimal for {orig_crop_name} (Requirement: {p_req})."
+            p_msg = f"Phosphorus is at a moderate level for {orig_crop_name}."
             reasons.append(f"Phosphorus score ({p_val}) is sub-optimal.")
             suggestions.append("Improve phosphorus availability based on soil-test/agronomic recommendations.")
         else:
             p_status = "Low"
-            p_msg = f"Phosphorus score ({p_val}) is deficient for {orig_crop_name} (Requirement: {p_req})."
+            p_msg = f"Phosphorus is low for {orig_crop_name}."
             reasons.append(f"Phosphorus score ({p_val}) is deficient.")
             suggestions.append("Improve phosphorus availability based on soil-test/agronomic recommendations.")
             
@@ -211,12 +211,12 @@ class SoilDiagnosisEngine:
             k_msg = f"Potassium score ({k_val}) is optimal for {orig_crop_name}."
         elif k_val == 0.5:
             k_status = "Moderate"
-            k_msg = f"Potassium score ({k_val}) is sub-optimal for {orig_crop_name} (Requirement: {k_req})."
+            k_msg = f"Potassium is at a moderate level for {orig_crop_name}."
             reasons.append(f"Potassium score ({k_val}) is sub-optimal.")
             suggestions.append("Improve potassium availability based on soil-test/agronomic recommendations.")
         else:
             k_status = "Low"
-            k_msg = f"Potassium score ({k_val}) is deficient for {orig_crop_name} (Requirement: {k_req})."
+            k_msg = f"Potassium is low for {orig_crop_name}."
             reasons.append(f"Potassium score ({k_val}) is deficient.")
             suggestions.append("Improve potassium availability based on soil-test/agronomic recommendations.")
             

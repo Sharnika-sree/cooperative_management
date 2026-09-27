@@ -153,7 +153,7 @@ async function runApiIntegrationTests() {
   }, { message: 'What is the water requirement for rice in Thanjavur?' });
   assert(chatWater.status === 200 && chatWater.data.response.includes('water requirement'), 'Chatbot handles "What is the water requirement for rice in Thanjavur?"');
 
-  // 9. Chatbot: Soil suitability in English
+  // 9. Chatbot: Soil suitability in English (Strict ML Input Gate - asks for missing inputs)
   const chatSuit = await makeRequest({
     hostname: '127.0.0.1',
     port: 5000,
@@ -164,9 +164,9 @@ async function runApiIntegrationTests() {
       'Authorization': `Bearer ${token}`
     }
   }, { message: 'Is groundnut suitable for Salem?' });
-  assert(chatSuit.status === 200 && chatSuit.data.response.includes('Suitability'), 'Chatbot handles "Is groundnut suitable for Salem?"');
+  assert(chatSuit.status === 200 && chatSuit.data.response.includes('Temperature') && chatSuit.data.response.includes('Humidity'), 'Chatbot asks for missing ML inputs for "Is groundnut suitable for Salem?"');
 
-  // 10. Chatbot: Manual values evaluation
+  // 10. Chatbot: Manual values evaluation with valid scores (0, 0.5, 1.0)
   const chatManual = await makeRequest({
     hostname: '127.0.0.1',
     port: 5000,
@@ -176,8 +176,8 @@ async function runApiIntegrationTests() {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`
     }
-  }, { message: 'My N is 45, P is 30, K is 40, temperature is 29, humidity is 70 and moisture is 3. Is groundnut suitable?' });
-  assert(chatManual.status === 200 && chatManual.data.response.includes('Suitability Score'), 'Chatbot parses manual NPK/climate values and returns structured score');
+  }, { message: 'My N score is 1.0, P score is 0.5, K score is 1.0, temperature is 29, humidity is 70 and moisture is 3. Is groundnut suitable for Salem?' });
+  assert(chatManual.status === 200 && (chatManual.data.response.includes('Suitability') || chatManual.data.response.includes('Suitable') || chatManual.data.response.includes('Needs Improvement')), 'Chatbot parses manual NPK scores and climate values and returns prediction');
 
   // 11. Chatbot: Tamil query
   const chatTamil = await makeRequest({

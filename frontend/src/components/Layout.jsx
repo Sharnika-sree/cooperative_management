@@ -1,6 +1,7 @@
 import { Outlet, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import Chatbot from './Chatbot'
+import { ChatbotProvider } from '../context/ChatbotContext'
 import { 
   Layout as LayoutIcon, Users, UserCheck, Package, 
   FileText, Megaphone, Warehouse, LogOut, ClipboardList, Bot, Sprout 
@@ -48,6 +49,7 @@ const Layout = () => {
   }
 
   return (
+    <ChatbotProvider>
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <nav className="bg-white shadow-sm border-b border-gray-250 shrink-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -103,8 +105,9 @@ const Layout = () => {
       <main className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 flex-1">
         <Outlet />
       </main>
-      <Chatbot />
+      {location.pathname !== '/chatbot-settings' && <Chatbot />}
     </div>
+    </ChatbotProvider>
   )
 }
 

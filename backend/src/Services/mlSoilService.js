@@ -61,6 +61,7 @@ class MlSoilService {
         encoding: 'utf8',
         env: { ...process.env, SOIL_ML_PATH: mlSoilDir }
       });
+      console.log('[SOIL MODEL CALL]', inputData.district_name, inputData.CROPS)
 
       if (pythonProcess.error) {
         console.error('Python ML execution error:', pythonProcess.error);

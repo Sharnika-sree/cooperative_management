@@ -4,6 +4,21 @@ const prisma = require('../config/database');
 const { auth, authorize } = require('../middleware/auth');
 const soilService = require('../Services/soilService');
 const mlSoilService = require('../Services/mlSoilService');
+const { displayDistrict, displayCrop, prettyCropEn } = require('../utils/agriLabels');
+
+const RAW_ACTIONS = new Set([
+  'SELECT_DISTRICT',
+  'SET_DISTRICT',
+  'SELECT_CROP',
+  'SET_CROP',
+  'CROP_RECOMMENDATIONS',
+  'DISTRICT_INFO',
+  'CROP_INFO',
+  'WATER_REQUIREMENT',
+  'NPK_REQUIREMENT',
+  'TEMP_HUMIDITY',
+  'COMPARE_CROPS'
+]);
 
 const router = express.Router();
 
@@ -69,28 +84,33 @@ function extractCropFromText(text) {
 }
 
 // Multi-turn Prediction Session State Handler
-function processPredictionSession(query, sessionMemory, isTamil) {
+function processPredictionSession(query, sessionMemory, isTamil, mode) {
   const clean = query.toLowerCase();
+  const isPredictionMode = (mode === 'prediction');
+
+  // Normalize spoken numbers to numeric strings
+  let normalizedQuery = query;
+  const spokenMap = { 'zero point five': '0.5', 'zero': '0', 'one': '1', 'one point five': '1.5', 'two': '2', 'two point five': '2.5', 'three': '3', 'three point five': '3.5', 'four': '4', 'five': '5', 'six': '6', 'seven': '7', 'eight': '8', 'nine': '9', 'ten': '10' };
+  for (const [spoken, num] of Object.entries(spokenMap)) {
+    normalizedQuery = normalizedQuery.replace(new RegExp(spoken, 'gi'), num);
+  }
   
   // Check if user explicitly requests to reuse previous values
   const isExplicitReuse = /use\s+(?:my\s+)?previous\s+values|reuse\s+previous|old\s+values|முந்தைய\s+அளவீடுகளை/i.test(query);
 
-  const isPredictionQuery = /suitable|suitability|verdict|score|improve|why|can\s+i\s+grow|grow|suitable\s+ah|suitablea|ஏற்றதா|பயிரிடலாமா/i.test(query);
+  const isPredictionQuery = /suitable|suitability|verdict|score|improve|why|can\s+i\s+grow|grow|suitable\s+ah|suitablea|ஏற்றதா|பயிரிடலாமா|prediction/i.test(query);
 
   let currentSession = null;
 
   if (isExplicitReuse && sessionMemory?.lastCompletedInputs) {
     currentSession = { ...sessionMemory.lastCompletedInputs };
-  } else if (sessionMemory?.predictionSession && !isPredictionQuery) {
+  } else if (sessionMemory?.predictionSession && (isPredictionQuery || isPredictionMode)) {
     currentSession = { ...sessionMemory.predictionSession };
   } else {
-    // New prediction request -> fresh state without stale numeric measurements!
-    const prevDistrict = sessionMemory?.predictionSession?.district_name || sessionMemory?.lastDistrict;
-    const prevCrop = sessionMemory?.predictionSession?.CROPS || sessionMemory?.lastCrop;
-
+    // New prediction request: never reuse stale raw-data crop/district.
     currentSession = {
-      district_name: extractDistrictFromText(query) || prevDistrict || null,
-      CROPS: extractCropFromText(query) || prevCrop || null,
+      district_name: extractDistrictFromText(query) || sessionMemory?.predictionSession?.district_name || null,
+      CROPS: extractCropFromText(query) || sessionMemory?.predictionSession?.CROPS || null,
       Temperature: null,
       Humidity: null,
       Moisture: null,
@@ -107,15 +127,15 @@ function processPredictionSession(query, sessionMemory, isTamil) {
   if (detectedCrop) currentSession.CROPS = detectedCrop;
 
   // Extract Numeric Measurements
-  const tempMatch = query.match(/(?:temperature|temp\b|temperature\s*is|temp\s*[:=])\s*[:=]?\s*(\d+(?:\.\d+)?)/i);
-  const humMatch = query.match(/(?:humidity|hum\b|humidity\s*is|hum\s*[:=])\s*[:=]?\s*(\d+(?:\.\d+)?)/i);
-  const moistMatch = query.match(/(?:moisture|moist\b|moisture\s*is|moist\s*[:=])\s*[:=]?\s*(\d+(?:\.\d+)?)/i);
+  const tempMatch = normalizedQuery.match(/(?:temperature|temp\b|temperature\s*is|temp\s*[:=])\s*[:=]?\s*(\d+(?:\.\d+)?)/i);
+  const humMatch = normalizedQuery.match(/(?:humidity|hum\b|humidity\s*is|hum\s*[:=])\s*[:=]?\s*(\d+(?:\.\d+)?)/i);
+  const moistMatch = normalizedQuery.match(/(?:moisture|moist\b|moisture\s*is|moist\s*[:=])\s*[:=]?\s*(\d+(?:\.\d+)?)/i);
 
-  const nScoreMatch = query.match(/(?:n_score|n\s*score|nitrogen\s*score|n\s*val|nitrogen\s*val|n\s*is|nitrogen\s*is|nitrogen)\s*[:=]?\s*(1\.0|0\.5|0\.0|1|0|\d+(?:\.\d+)?)/i);
-  const pScoreMatch = query.match(/(?:p_score|p\s*score|phosphorus\s*score|p\s*val|phosphorus\s*val|p\s*is|phosphorus\s*is|phosphorus)\s*[:=]?\s*(1\.0|0\.5|0\.0|1|0|\d+(?:\.\d+)?)/i);
-  const kScoreMatch = query.match(/(?:k_score|k\s*score|potassium\s*score|k\s*val|potassium\s*val|k\s*is|potassium\s*is|potassium)\s*[:=]?\s*(1\.0|0\.5|0\.0|1|0|\d+(?:\.\d+)?)/i);
+  const nScoreMatch = normalizedQuery.match(/(?:n_score|n\s*score|nitrogen\s*score|n\s*val|nitrogen\s*val|n\s*is|nitrogen\s*is|nitrogen|n\s*:|n\s+)\s*[:=]?\s*(1\.0|0\.5|0\.0|1|0|\d+(?:\.\d+)?)/i);
+  const pScoreMatch = normalizedQuery.match(/(?:p_score|p\s*score|phosphorus\s*score|p\s*val|phosphorus\s*val|p\s*is|phosphorus\s*is|phosphorus|p\s*:|p\s+)\s*[:=]?\s*(1\.0|0\.5|0\.0|1|0|\d+(?:\.\d+)?)/i);
+  const kScoreMatch = normalizedQuery.match(/(?:k_score|k\s*score|potassium\s*score|k\s*val|potassium\s*val|k\s*is|potassium\s*is|potassium|k\s*:|k\s+)\s*[:=]?\s*(1\.0|0\.5|0\.0|1|0|\d+(?:\.\d+)?)/i);
 
-  const npkScoresMatch = query.match(/npk\s*(?:scores|score|is|=|:)?\s*(\d+(?:\.\d+)?)\s*[,:\s]\s*(\d+(?:\.\d+)?)\s*[,:\s]\s*(\d+(?:\.\d+)?)/i);
+  const npkScoresMatch = normalizedQuery.match(/npk\s*(?:scores|score|is|=|:)?\s*(\d+(?:\.\d+)?)\s*[,:\s]\s*(\d+(?:\.\d+)?)\s*[,:\s]\s*(\d+(?:\.\d+)?)/i);
 
   if (tempMatch) currentSession.Temperature = parseFloat(tempMatch[1]);
   if (humMatch) currentSession.Humidity = parseFloat(humMatch[1]);
@@ -131,163 +151,368 @@ function processPredictionSession(query, sessionMemory, isTamil) {
   else if (npkScoresMatch) currentSession.K_score = parseFloat(npkScoresMatch[3]);
 
   // Keyword score fallbacks
-  if (currentSession.N_score === null && /nitrogen\s+(?:is\s+)?low/i.test(query)) currentSession.N_score = 0.0;
-  if (currentSession.N_score === null && /nitrogen\s+(?:is\s+)?moderate/i.test(query)) currentSession.N_score = 0.5;
-  if (currentSession.N_score === null && /nitrogen\s+(?:is\s+)?suitable/i.test(query)) currentSession.N_score = 1.0;
+  if (currentSession.N_score === null && /nitrogen\s+(?:is\s+)?low/i.test(normalizedQuery)) currentSession.N_score = 0.0;
+  if (currentSession.N_score === null && /nitrogen\s+(?:is\s+)?moderate/i.test(normalizedQuery)) currentSession.N_score = 0.5;
+  if (currentSession.N_score === null && /nitrogen\s+(?:is\s+)?suitable/i.test(normalizedQuery)) currentSession.N_score = 1.0;
 
-  if (currentSession.P_score === null && /phosphorus\s+(?:is\s+)?low/i.test(query)) currentSession.P_score = 0.0;
-  if (currentSession.P_score === null && /phosphorus\s+(?:is\s+)?moderate/i.test(query)) currentSession.P_score = 0.5;
-  if (currentSession.P_score === null && /phosphorus\s+(?:is\s+)?suitable/i.test(query)) currentSession.P_score = 1.0;
+  if (currentSession.P_score === null && /phosphorus\s+(?:is\s+)?low/i.test(normalizedQuery)) currentSession.P_score = 0.0;
+  if (currentSession.P_score === null && /phosphorus\s+(?:is\s+)?moderate/i.test(normalizedQuery)) currentSession.P_score = 0.5;
+  if (currentSession.P_score === null && /phosphorus\s+(?:is\s+)?suitable/i.test(normalizedQuery)) currentSession.P_score = 1.0;
 
-  if (currentSession.K_score === null && /potassium\s+(?:is\s+)?low/i.test(query)) currentSession.K_score = 0.0;
-  if (currentSession.K_score === null && /potassium\s+(?:is\s+)?moderate/i.test(query)) currentSession.K_score = 0.5;
-  if (currentSession.K_score === null && /potassium\s+(?:is\s+)?suitable/i.test(query)) currentSession.K_score = 1.0;
+  if (currentSession.K_score === null && /potassium\s+(?:is\s+)?low/i.test(normalizedQuery)) currentSession.K_score = 0.0;
+  if (currentSession.K_score === null && /potassium\s+(?:is\s+)?moderate/i.test(normalizedQuery)) currentSession.K_score = 0.5;
+  if (currentSession.K_score === null && /potassium\s+(?:is\s+)?suitable/i.test(normalizedQuery)) currentSession.K_score = 1.0;
+
+  const debugSessionMemory = JSON.stringify(sessionMemory || {});
+
+  // Unlabeled numeric input: extract all numbers positionally
+  const hasNumericLabels = /(temperature|temp\b|humidity|humid|moisture|moist|nitrogen|phosphorus|potassium|n_score|p_score|k_score|n\s+|p\s+|k\s+|\bnpk\b)/i.test(normalizedQuery);
+  if (!hasNumericLabels) {
+    const nums = (normalizedQuery.match(/-?\d+(?:\.\d+)?/g) || []).map(Number);
+    const positionalFields = ['Temperature', 'Humidity', 'Moisture', 'N_score', 'P_score', 'K_score'];
+    let numIdx = 0;
+    for (const field of positionalFields) {
+      if (currentSession[field] === null || isNaN(currentSession[field])) {
+        if (numIdx < nums.length) {
+          const val = nums[numIdx];
+          if (field === 'N_score' || field === 'P_score' || field === 'K_score') {
+            if (val === 0 || val === 0.5 || val === 1) {
+              currentSession[field] = val;
+            } else {
+              // Invalid NPK value - keep as null so validation can report error
+            }
+          } else {
+            currentSession[field] = val;
+          }
+          numIdx++;
+        }
+      }
+    }
+  }
+
+  // Validate NPK values
+  const npkErrors = [];
+  const validNPK = [0, 0.5, 1];
+  if (currentSession.N_score !== null && !isNaN(currentSession.N_score) && !validNPK.includes(currentSession.N_score)) {
+    npkErrors.push('N must be 0, 0.5, or 1.');
+    currentSession.N_score = null;
+  }
+  if (currentSession.P_score !== null && !isNaN(currentSession.P_score) && !validNPK.includes(currentSession.P_score)) {
+    npkErrors.push('P must be 0, 0.5, or 1.');
+    currentSession.P_score = null;
+  }
+  if (currentSession.K_score !== null && !isNaN(currentSession.K_score) && !validNPK.includes(currentSession.K_score)) {
+    npkErrors.push('K must be 0, 0.5, or 1.');
+    currentSession.K_score = null;
+  }
 
   // Identify missing fields
   const missing = [];
-  if (!currentSession.CROPS) missing.push(isTamil ? 'பயிர் (Crop)' : 'Crop');
-  if (!currentSession.district_name) missing.push(isTamil ? 'மாவட்டம் (District)' : 'District');
-  if (currentSession.Temperature === null || isNaN(currentSession.Temperature)) missing.push(isTamil ? 'வெப்பநிலை (Temperature)' : 'Temperature');
-  if (currentSession.Humidity === null || isNaN(currentSession.Humidity)) missing.push(isTamil ? 'காற்றின் ஈரப்பதம் (Humidity)' : 'Humidity');
-  if (currentSession.Moisture === null || isNaN(currentSession.Moisture)) missing.push(isTamil ? 'மண் ஈரப்பதம் (Moisture)' : 'Moisture');
-  if (currentSession.N_score === null || isNaN(currentSession.N_score)) missing.push(isTamil ? 'நைட்ரஜன் அளவு (N score)' : 'N score');
-  if (currentSession.P_score === null || isNaN(currentSession.P_score)) missing.push(isTamil ? 'பாஸ்பரஸ் அளவு (P score)' : 'P score');
-  if (currentSession.K_score === null || isNaN(currentSession.K_score)) missing.push(isTamil ? 'பொட்டாசியம் அளவு (K score)' : 'K score');
+  if (!currentSession.CROPS) missing.push(isTamil ? 'பயிர்' : 'Crop');
+  if (!currentSession.district_name) missing.push(isTamil ? 'மாவட்டம்' : 'District');
+  if (currentSession.Temperature === null || isNaN(currentSession.Temperature)) missing.push(isTamil ? 'வெப்பநிலை' : 'Temperature');
+  if (currentSession.Humidity === null || isNaN(currentSession.Humidity)) missing.push(isTamil ? 'காற்றின் ஈரப்பதம்' : 'Humidity');
+  if (currentSession.Moisture === null || isNaN(currentSession.Moisture)) missing.push(isTamil ? 'மண் ஈரப்பதம்' : 'Moisture');
+  if (currentSession.N_score === null || isNaN(currentSession.N_score)) missing.push(isTamil ? 'நைட்ரஜன் அளவு' : 'N Value');
+  if (currentSession.P_score === null || isNaN(currentSession.P_score)) missing.push(isTamil ? 'பாஸ்பரஸ் அளவு' : 'P Value');
+  if (currentSession.K_score === null || isNaN(currentSession.K_score)) missing.push(isTamil ? 'பொட்டாசியம் அளவு' : 'K Value');
+  console.log('[T14DEBUG] currentSession:', JSON.stringify(currentSession), 'query:', query.slice(0, 50), 'isPredictionMode:', isPredictionMode, 'isPredictionQuery:', isPredictionQuery, 'isExplicitReuse:', isExplicitReuse, 'sessionMem:', debugSessionMemory.slice(0, 100));
+  const allMissing = [...missing, ...npkErrors];
 
   return {
-    isComplete: missing.length === 0,
-    missingFields: missing,
+    isComplete: allMissing.length === 0,
+    missingFields: allMissing,
     session: currentSession,
     isExplicitReuse
   };
 }
 
-// Farmer-Friendly Result Formatter (Omit confidence, accuracy, CatBoost technical terms)
+function farmerStatusLabel(status, isTamil) {
+  const map = {
+    Suitable: isTamil ? 'ஏற்றது' : 'Suitable',
+    Moderate: isTamil ? 'மிதமானது' : 'Moderate',
+    Low: isTamil ? 'குறைவு' : 'Low',
+    High: isTamil ? 'அதிகம்' : 'High',
+    'Above Range': isTamil ? 'அதிகம்' : 'High',
+    'Below Range': isTamil ? 'குறைவு' : 'Low',
+    'Needs Improvement': isTamil ? 'மேம்படுத்த வேண்டும்' : 'Needs Improvement',
+    'Not Suitable': isTamil ? 'ஏற்றதல்ல' : 'Not Suitable'
+  };
+  return map[status] || (isTamil ? 'மேம்படுத்த வேண்டும்' : status);
+}
+
+function farmerFactorName(key, isTamil) {
+  const map = {
+    temperature: isTamil ? 'வெப்பநிலை' : 'Temperature',
+    humidity: isTamil ? 'ஈரப்பதம்' : 'Humidity',
+    moisture: isTamil ? 'மண் ஈரப்பதம்' : 'Moisture',
+    nitrogen: isTamil ? 'நைட்ரஜன்' : 'Nitrogen',
+    phosphorus: isTamil ? 'பாஸ்பரஸ்' : 'Phosphorus',
+    potassium: isTamil ? 'பொட்டாசியம்' : 'Potassium'
+  };
+  return map[key] || key;
+}
+
+function practicalSuggestion(key, status, isTamil) {
+  if (key === 'moisture' || key === 'humidity') {
+    return isTamil
+      ? 'உரிய நீர்ப்பாசன மேலாண்மை மூலம் மண் ஈரப்பதத்தை மேம்படுத்தவும்.'
+      : 'Improve soil moisture through appropriate water management.';
+  }
+  if (key === 'nitrogen') {
+    return isTamil
+      ? 'மண் பரிசோதனை பரிந்துரைகளின்படி நைட்ரஜன் கிடைப்பை மேம்படுத்தவும்.'
+      : 'Improve nitrogen availability based on soil-test recommendations.';
+  }
+  if (key === 'phosphorus') {
+    return isTamil
+      ? 'மண் பரிசோதனை பரிந்துரைகளின்படி பாஸ்பரஸ் கிடைப்பை மேம்படுத்தவும்.'
+      : 'Improve phosphorus availability based on soil-test recommendations.';
+  }
+  if (key === 'potassium') {
+    return isTamil
+      ? 'மண் பரிசோதனை பரிந்துரைகளின்படி பொட்டாசியம் கிடைப்பை மேம்படுத்தவும்.'
+      : 'Improve potassium availability based on soil-test recommendations.';
+  }
+  if (key === 'temperature') {
+    return isTamil
+      ? 'பயிர் காலத்தை உகந்த வெப்பநிலைக்கு ஏற்ப தேர்வு செய்யவும்.'
+      : 'Choose a growing window that better matches the crop temperature range.';
+  }
+  return isTamil
+    ? 'மண் பரிசோதனை பரிந்துரைகளின்படி மேம்படுத்தவும்.'
+    : 'Improve this factor based on soil-test recommendations.';
+}
+
 function formatFarmerResponse(mlResult, sessionData, isTamil) {
-  const rawCrop = mlResult.crop || sessionData.CROPS || 'Crop';
-  const cropName = rawCrop.charAt(0).toUpperCase() + rawCrop.slice(1);
-  const distName = sessionData.district_name || 'Salem';
-  const verdict = mlResult.prediction;
-
-  const goodFactors = [];
-  const improveFactors = [];
-
+  const rawCrop = mlResult.crop || sessionData.CROPS || '';
+  const cropName = isTamil ? displayCrop(rawCrop, true) : prettyCropEn(rawCrop);
+  const distRaw = sessionData.district_name || mlResult.district || '';
+  const distName = displayDistrict(distRaw, isTamil);
+  const verdictRaw = mlResult.prediction;
+  const verdict = farmerStatusLabel(verdictRaw, isTamil);
   const factors = mlResult.factors || {};
+  const issueLines = [];
+  const improveLines = [];
 
-  if (factors.temperature) {
-    if (factors.temperature.status === 'Suitable') {
-      goodFactors.push(isTamil ? '• வெப்பநிலை: ஏற்றது' : '• Temperature: Suitable');
-    } else {
-      improveFactors.push(isTamil ? '• காற்றின் வெப்பநிலை உகந்த அளவை விட வேறுபட்டுள்ளது.' : '• Temperature is outside the preferred level for this crop.');
-    }
+  for (const key of ['temperature', 'humidity', 'moisture', 'nitrogen', 'phosphorus', 'potassium']) {
+    const f = factors[key];
+    if (!f || !f.status || f.status === 'Suitable') continue;
+    const shown = farmerStatusLabel(f.status, isTamil);
+    issueLines.push(`${farmerFactorName(key, isTamil)} — ${shown}`);
+    improveLines.push(practicalSuggestion(key, f.status, isTamil));
   }
 
-  if (factors.humidity) {
-    if (factors.humidity.status === 'Suitable') {
-      goodFactors.push(isTamil ? '• காற்றின் ஈரப்பதம்: ஏற்றது' : '• Humidity: Suitable');
-    } else {
-      improveFactors.push(isTamil ? '• காற்றின் ஈரப்பதம் குறைவாக உள்ளது.' : '• Humidity is lower than the preferred level for this crop.');
-    }
-  }
-
-  if (factors.moisture) {
-    if (factors.moisture.status === 'Suitable') {
-      goodFactors.push(isTamil ? '• மண் ஈரப்பதம்: ஏற்றது' : '• Moisture: Suitable');
-    } else {
-      improveFactors.push(isTamil ? '• மண் ஈரப்பதம் குறைவாக உள்ளது.' : '• Moisture level is low for this crop.');
-    }
-  }
-
-  if (factors.nitrogen) {
-    if (factors.nitrogen.status === 'Suitable') {
-      goodFactors.push(isTamil ? '• நைட்ரஜன்: ஏற்றது' : '• Nitrogen: Suitable');
-    } else if (factors.nitrogen.status === 'Moderate') {
-      goodFactors.push(isTamil ? '• நைட்ரஜன்: மிதமான அளவில் உள்ளது' : '• Nitrogen: Moderate');
-    } else {
-      improveFactors.push(isTamil ? '• நைட்ரஜன் அளவு குறைவாக உள்ளது.' : '• Nitrogen is low.');
-    }
-  }
-
-  if (factors.phosphorus) {
-    if (factors.phosphorus.status === 'Suitable') {
-      goodFactors.push(isTamil ? '• பாஸ்பரஸ்: ஏற்றது' : '• Phosphorus: Suitable');
-    } else if (factors.phosphorus.status === 'Moderate') {
-      goodFactors.push(isTamil ? '• பாஸ்பரஸ்: மிதமான அளவில் உள்ளது' : '• Phosphorus: Moderate');
-    } else {
-      improveFactors.push(isTamil ? '• பாஸ்பரஸ் அளவு குறைவாக உள்ளது.' : '• Phosphorus is low.');
-    }
-  }
-
-  if (factors.potassium) {
-    if (factors.potassium.status === 'Suitable') {
-      goodFactors.push(isTamil ? '• பொட்டாசியம்: ஏற்றது' : '• Potassium: Suitable');
-    } else if (factors.potassium.status === 'Moderate') {
-      goodFactors.push(isTamil ? '• பொட்டாசியம்: மிதமான அளவில் உள்ளது' : '• Potassium: Moderate');
-    } else {
-      improveFactors.push(isTamil ? '• பொட்டாசியம் அளவு குறைவாக உள்ளது.' : '• Potassium is low.');
-    }
-  }
-
-  const suggestions = mlResult.suggestions || [];
-  const cleanSuggestions = suggestions.map(s => {
-    if (s.includes('humidity')) return isTamil ? '• காற்றின் ஈரப்பதத்தை முடிந்தவரை உகந்த அளவில் பராமரிக்கவும்.' : '• Manage growing conditions to improve humidity where feasible.';
-    if (s.includes('nitrogen') || s.includes('phosphorus') || s.includes('potassium') || s.includes('nutrient')) {
-      return isTamil ? '• மண் பரிசோதனை பரிந்துரைகளின்படி உரங்களை பயன்படுத்தவும்.' : '• Improve nutrient availability based on soil-test recommendations.';
-    }
-    return `• ${s}`;
-  });
-
-  const uniqueSuggestions = Array.from(new Set(cleanSuggestions));
+  const uniqueImprove = Array.from(new Set(improveLines));
 
   let responseText = '';
   let ttsText = '';
-
   if (isTamil) {
-    responseText = `🌱 **மண் மற்றும் பயிர் பொருத்தம்**
-
-**பயிர்:** ${cropName}
-**மாவட்டம்:** ${distName}
-
-**முடிவு:**
-${verdict === 'Suitable' ? 'ஏற்றது' : verdict === 'Needs Improvement' ? 'மேம்படுத்த வேண்டும்' : 'ஏற்றதல்ல'}
-
-**நன்றாக உள்ளவை:**
-${goodFactors.length > 0 ? goodFactors.join('\n') : '• தகவல்கள் பகுப்பாய்வு செய்யப்பட்டன.'}
-
-**மேம்படுத்த வேண்டியவை:**
-${improveFactors.length > 0 ? improveFactors.join('\n') : '• அனைத்து அளவீடுகளும் உகந்த நிலையில் உள்ளன.'}
-
-**நீங்கள் செய்யக்கூடியவை:**
-${uniqueSuggestions.join('\n')}`;
-
-    ttsText = `${distName} மாவட்டத்தில் ${cropName} பயிருக்கு ` +
-              (verdict === 'Suitable' ? 'நிலம் மிகவும் ஏற்றது. ' : verdict === 'Needs Improvement' ? 'சில மேம்பாடுகள் தேவை. ' : 'நிலம் ஏற்றதல்ல. ') +
-              (improveFactors.length > 0 ? 'சில காரணிகள் மேம்படுத்தப்பட வேண்டும். ' : 'அனைத்து அளவீடுகளும் உகந்த நிலையில் உள்ளன. ') +
-              'மண் பரிசோதனை பரிந்துரைகளின்படி பயிர் செய்ய அணுகவும்.';
+    responseText =
+      `மண் மற்றும் பயிர் பொருத்தம்\n` +
+      `பயிர்: ${cropName}\n` +
+      `மாவட்டம்: ${distName}\n` +
+      `இறுதி முடிவு: ${verdict}\n\n` +
+      `முக்கிய சிக்கல்கள்\n` +
+      (issueLines.length ? issueLines.join('\n') : 'குறிப்பிடத்தக்க சிக்கல் இல்லை.') +
+      `\n\nசெயல்வழி மேம்பாடுகள்\n` +
+      (uniqueImprove.length ? uniqueImprove.join('\n') : 'தற்போதைய அளவீடுகள் ஏற்ற நிலையில் உள்ளன.');
+    ttsText = `${distName} மாவட்டத்தில் ${cropName} பயிருக்கு முடிவு ${verdict}.`;
+    if (issueLines.length) ttsText += ` முக்கிய சிக்கல்கள்: ${issueLines.join(', ')}.`;
+    if (uniqueImprove[0]) ttsText += ` ${uniqueImprove[0]}`;
   } else {
-    responseText = `🌱 **Soil & Crop Suitability**
+    responseText =
+      `Soil & Crop Suitability\n` +
+      `Crop: ${cropName}\n` +
+      `District: ${distName}\n` +
+      `Final Result: ${verdict}\n\n` +
+      `Main Issues\n` +
+      (issueLines.length ? issueLines.join('\n') : 'No major issues.') +
+      `\n\nPractical Improvements\n` +
+      (uniqueImprove.length ? uniqueImprove.join('\n') : 'Current values are within preferred levels.');
+    ttsText = `${cropName} in ${distName}. ${verdict}.`;
+    if (issueLines.length) ttsText += ` Main issues: ${issueLines.join(', ')}.`;
+    if (uniqueImprove[0]) ttsText += ` ${uniqueImprove[0]}`;
+  }
+  return { responseText, ttsText };
+}
 
-**Crop:** ${cropName}
-**District:** ${distName}
+function levelWord(val, isTamil) {
+  const v = String(val || '').toLowerCase();
+  if (v === 'high') return isTamil ? 'அதிகம்' : 'High';
+  if (v === 'low') return isTamil ? 'குறைவு' : 'Low';
+  if (v === 'medium' || v === 'moderate') return isTamil ? 'நடுத்தரம்' : 'Medium';
+  return val;
+}
 
-**Result:**
-${verdict}
+async function handleRawStructuredAction(action, language, sessionMemory, message) {
+  const isTamil = language === 'Tamil';
+  const district = sessionMemory?.district || sessionMemory?.lastDistrict || null;
+  const crop = sessionMemory?.crop || sessionMemory?.lastCrop || null;
+  const mem = { ...sessionMemory, mode: 'normal', lastLanguage: isTamil ? 'Tamil' : 'English' };
 
-**What is good:**
-${goodFactors.length > 0 ? goodFactors.join('\n') : '• Analyzed parameters.'}
-
-**What needs improvement:**
-${improveFactors.length > 0 ? improveFactors.join('\n') : '• All parameters are within preferred levels.'}
-
-**What you can do:**
-${uniqueSuggestions.join('\n')}`;
-
-    ttsText = `${cropName} in ${distName} result is ${verdict.toLowerCase()}. ` +
-              (improveFactors.length > 0 ? 'Some factors need improvement. ' : 'All parameters are suitable. ') +
-              'Follow soil test recommendations for best crop yield.';
+  if (action === 'SELECT_DISTRICT') {
+    const S = isTamil ? 'ஒரு மாவட்டத்தைத் தேர்ந்தெடுக்கவும்.' : 'Please select a district.';
+    return { response: S, ttsText: S, sessionMemory: mem };
   }
 
-  return { responseText, ttsText };
+  if (action === 'SET_DISTRICT') {
+    const d = message || district;
+    const info = await soilService.normalizeDistrict(d);
+    const canonical = info.district;
+    if (!canonical) {
+      const msg = isTamil ? 'அந்த மாவட்டம் தற்போதைய தரவுத்தளத்தில் இல்லை.' : 'That district is not supported by the current dataset.';
+      return { response: msg, ttsText: msg, sessionMemory: mem };
+    }
+    mem.district = canonical;
+    mem.lastDistrict = canonical;
+    const shown = displayDistrict(canonical, isTamil);
+    const msg = isTamil ? `${shown} தேர்ந்தெடுக்கப்பட்டது.` : `${shown} selected.`;
+    return { response: msg, ttsText: msg, sessionMemory: mem };
+  }
+
+  if (action === 'SELECT_CROP') {
+    const S = isTamil ? 'எந்தப் பயிர்?' : 'Which crop?';
+    return { response: S, ttsText: S, needCrop: true, sessionMemory: mem };
+  }
+
+  if (action === 'SET_CROP') {
+    const c = soilService.normalizeCrop(message || crop);
+    if (!c) {
+      const msg = isTamil ? 'அந்தப் பயிர் தரவுத்தளத்தில் இல்லை.' : 'That crop is not found in the dataset.';
+      return { response: msg, ttsText: msg, sessionMemory: mem };
+    }
+    mem.crop = c;
+    mem.lastCrop = c;
+    const shown = displayCrop(c, isTamil);
+    const msg = isTamil ? `${shown} தேர்ந்தெடுக்கப்பட்டது.` : `${prettyCropEn(c)} selected.`;
+    return { response: msg, ttsText: msg, sessionMemory: mem };
+  }
+
+  if (action === 'CROP_RECOMMENDATIONS') {
+    if (!district) {
+      const S = isTamil ? 'ஒரு மாவட்டத்தைத் தேர்ந்தெடுக்கவும்.' : 'Please select a district.';
+      return { response: S, ttsText: S, sessionMemory: mem };
+    }
+    const rec = await soilService.getSuitableCrops(district);
+    if (!rec.success) {
+      const msg = isTamil ? 'சரிபார்க்கப்பட்ட தரவில் பயிர் பரிந்துரைகள் இல்லை.' : (rec.error || 'No crop recommendations are available from the verified data.');
+      return { response: msg, ttsText: msg, sessionMemory: mem };
+    }
+    const dName = displayDistrict(rec.district, isTamil);
+    const lines = rec.topCrops.slice(0, 6).map((c, i) => {
+      const cn = isTamil ? displayCrop(c.crop, true) : prettyCropEn(c.crop);
+      return `${i + 1}. ${cn}`;
+    });
+    const response = isTamil
+      ? `${dName} மாவட்டத்திற்கு ஏற்ற பயிர்கள்:\n${lines.join('\n')}`
+      : `Recommended crops for ${dName}:\n${lines.join('\n')}`;
+    return { response, ttsText: response, cropsData: rec, sessionMemory: mem };
+  }
+
+  if (action === 'DISTRICT_INFO') {
+    if (!district) {
+      const S = isTamil ? 'ஒரு மாவட்டத்தைத் தேர்ந்தெடுக்கவும்.' : 'Please select a district.';
+      return { response: S, ttsText: S, sessionMemory: mem };
+    }
+    const info = await soilService.getDistrictInfo(district);
+    if (!info.success) {
+      const msg = isTamil ? 'மாவட்டத் தகவல் கிடைக்கவில்லை.' : (info.error || 'District information is not available.');
+      return { response: msg, ttsText: msg, sessionMemory: mem };
+    }
+    const dName = displayDistrict(info.district, isTamil);
+    const tops = (info.topCrops || []).slice(0, 5).map((c) => (isTamil ? displayCrop(c.crop, true) : prettyCropEn(c.crop))).join(', ');
+    const response = isTamil
+      ? `${dName} மாவட்டத் தகவல்\nபயிர்களின் எண்ணிக்கை: ${info.cropCount}\nசராசரி வெப்பநிலை: ${info.avgTemperature}°செ\nசராசரி ஈரப்பதம்: ${info.avgHumidity}%\nமுதன்மைப் பயிர்கள்: ${tops}`
+      : `${dName} district information\nCrops in dataset: ${info.cropCount}\nAverage temperature: ${info.avgTemperature}°C\nAverage humidity: ${info.avgHumidity}%\nLeading crops: ${tops}`;
+    return { response, ttsText: response, sessionMemory: mem };
+  }
+
+  if (action === 'WATER_REQUIREMENT' || action === 'NPK_REQUIREMENT' || action === 'TEMP_HUMIDITY' || action === 'CROP_INFO') {
+    if (!crop) {
+      const S = isTamil ? 'எந்தப் பயிர்?' : 'Which crop?';
+      return { response: S, ttsText: S, needCrop: true, pendingAction: action, sessionMemory: mem };
+    }
+  }
+
+  if (action === 'WATER_REQUIREMENT') {
+    const water = await soilService.getWaterRequirement(crop, district);
+    if (!water.success) {
+      const msg = isTamil ? 'நீர் தேவைத் தரவு இல்லை.' : water.error;
+      return { response: msg, ttsText: msg, sessionMemory: mem };
+    }
+    const cn = isTamil ? displayCrop(water.crop, true) : prettyCropEn(water.crop);
+    const lvl = levelWord(water.waterRequirement, isTamil);
+    const response = isTamil
+      ? `${cn} பயிருக்கு நீர் தேவை: ${lvl}.`
+      : `Water requirement for ${cn}: ${water.formattedRequirement}`;
+    return { response, ttsText: response, sessionMemory: mem };
+  }
+
+  if (action === 'NPK_REQUIREMENT') {
+    const npk = await soilService.getNpkRequirement(crop);
+    if (!npk.success) {
+      const msg = isTamil ? 'ஊட்டச்சத்துத் தேவைத் தரவு இல்லை.' : 'NPK requirement data is not available.';
+      return { response: msg, ttsText: msg, sessionMemory: mem };
+    }
+    const cn = isTamil ? displayCrop(npk.crop, true) : prettyCropEn(npk.crop);
+    const response = isTamil
+      ? `${cn} ஊட்டச்சத்துத் தேவை\nநைட்ரஜன்: ${levelWord(npk.nitrogen, true)}\nபாஸ்பரஸ்: ${levelWord(npk.phosphorus, true)}\nபொட்டாசியம்: ${levelWord(npk.potassium, true)}`
+      : `${cn} nutrient requirement\nNitrogen: ${levelWord(npk.nitrogen, false)}\nPhosphorus: ${levelWord(npk.phosphorus, false)}\nPotassium: ${levelWord(npk.potassium, false)}`;
+    return { response, ttsText: response, sessionMemory: mem };
+  }
+
+  if (action === 'TEMP_HUMIDITY') {
+    const climate = await soilService.getCropClimate(crop, district);
+    if (!climate.success) {
+      const msg = isTamil ? 'காலநிலைத் தரவு இல்லை.' : climate.error;
+      return { response: msg, ttsText: msg, sessionMemory: mem };
+    }
+    const cn = isTamil ? displayCrop(climate.crop, true) : prettyCropEn(climate.crop);
+    const cr = climate.cropRequirements;
+    const response = isTamil
+      ? `${cn} தேவை\nவெப்பநிலை: ${cr.minTemperature}°செ – ${cr.maxTemperature}°செ\nஈரப்பதம்: ${cr.minHumidity}% – ${cr.maxHumidity}%`
+      : `${cn} requirements\nTemperature: ${cr.minTemperature}°C – ${cr.maxTemperature}°C\nHumidity: ${cr.minHumidity}% – ${cr.maxHumidity}%`;
+    return { response, ttsText: response, sessionMemory: mem };
+  }
+
+  if (action === 'CROP_INFO') {
+    const info = await soilService.getCropInfo(crop, district);
+    if (!info.success) {
+      const msg = isTamil ? 'பயிர் தகவல் இல்லை.' : 'Crop information is not available.';
+      return { response: msg, ttsText: msg, sessionMemory: mem };
+    }
+    const cn = isTamil ? displayCrop(info.crop, true) : prettyCropEn(info.crop);
+    const waterLvl = levelWord(info.water.waterRequirement, isTamil);
+    const npk = info.npk;
+    const cr = info.climate.cropRequirements;
+    const response = isTamil
+      ? `${cn} தகவல்\nநீர் தேவை: ${waterLvl}\nநைட்ரஜன்: ${levelWord(npk.nitrogen, true)}\nபாஸ்பரஸ்: ${levelWord(npk.phosphorus, true)}\nபொட்டாசியம்: ${levelWord(npk.potassium, true)}\nவெப்பநிலை: ${cr.minTemperature}°செ – ${cr.maxTemperature}°செ\nஈரப்பதம்: ${cr.minHumidity}% – ${cr.maxHumidity}%`
+      : `${cn} information\nWater: ${info.water.formattedRequirement}\nNitrogen: ${levelWord(npk.nitrogen, false)}\nPhosphorus: ${levelWord(npk.phosphorus, false)}\nPotassium: ${levelWord(npk.potassium, false)}\nTemperature: ${cr.minTemperature}°C – ${cr.maxTemperature}°C\nHumidity: ${cr.minHumidity}% – ${cr.maxHumidity}%`;
+    return { response, ttsText: response, sessionMemory: mem };
+  }
+
+  if (action === 'COMPARE_CROPS') {
+    const other = soilService.normalizeCrop(message);
+    if (!crop || !other) {
+      const S = isTamil ? 'ஒப்பிட வேண்டிய மற்ற பயிரைத் தேர்ந்தெடுக்கவும்.' : 'Which other crop should be compared?';
+      return { response: S, ttsText: S, needCrop: true, pendingAction: 'COMPARE_CROPS', sessionMemory: mem };
+    }
+    const cmp = await soilService.compareCrops(crop, other, district);
+    if (!cmp.success) {
+      const msg = isTamil ? 'ஒப்பீட்டுத் தரவு இல்லை.' : 'Comparison data is not available.';
+      return { response: msg, ttsText: msg, sessionMemory: mem };
+    }
+    const a = isTamil ? displayCrop(cmp.a.crop, true) : prettyCropEn(cmp.a.crop);
+    const b = isTamil ? displayCrop(cmp.b.crop, true) : prettyCropEn(cmp.b.crop);
+    const response = isTamil
+      ? `${a}: நீர் ${levelWord(cmp.a.water.waterRequirement, true)}, நைட்ரஜன் ${levelWord(cmp.a.npk.nitrogen, true)}\n${b}: நீர் ${levelWord(cmp.b.water.waterRequirement, true)}, நைட்ரஜன் ${levelWord(cmp.b.npk.nitrogen, true)}`
+      : `${a}: water ${cmp.a.water.waterRequirement}, nitrogen ${cmp.a.npk.nitrogen}\n${b}: water ${cmp.b.water.waterRequirement}, nitrogen ${cmp.b.npk.nitrogen}`;
+    return { response, ttsText: response, sessionMemory: mem };
+  }
+
+  const fallback = isTamil ? 'அந்தச் செயலைச் செய்ய முடியவில்லை.' : 'That action could not be completed.';
+  return { response: fallback, ttsText: fallback, sessionMemory: mem };
 }
 
 // 1. Get Chatbot Configuration (ADMIN only)
@@ -344,18 +569,26 @@ router.put('/config', auth, authorize('ADMIN'), async (req, res) => {
 
 // 3. Process chatbot messages
 router.post('/', auth, async (req, res) => {
-  try {
-    const { message, language, sessionMemory } = req.body;
+    try {
+    const { message, language, sessionMemory, action, mode: reqMode } = req.body;
+
+    const prefLanguage = (language === 'ta' || language === 'Tamil') ? 'Tamil' : 'English';
+    const isTamilLang = prefLanguage === 'Tamil';
+
+    if (action && RAW_ACTIONS.has(action)) {
+      const payload = await handleRawStructuredAction(action, prefLanguage, sessionMemory || {}, message);
+      return res.json(payload);
+    }
+
     if (!message || typeof message !== 'string' || !message.trim()) {
       return res.status(400).json({ error: 'Message is required' });
     }
 
     const query = message.trim();
     const queryLower = query.toLowerCase();
-
-    // Determine preferred language from explicit user setting or query text
-    const prefLanguage = (language === 'ta' || language === 'Tamil' || (language !== 'en' && language !== 'English' && isTamilText(query))) ? 'Tamil' : 'English';
-    const isTamil = (prefLanguage === 'Tamil');
+    const extractedDistrict = extractDistrictFromText(query);
+    const extractedCrop = extractCropFromText(query);
+    const isTamil = isTamilLang;
 
     // Fetch user/farmer profile with safe fallback
     let farmer = null;
@@ -370,17 +603,24 @@ router.post('/', auth, async (req, res) => {
     }
 
     const userDistrict = farmer?.district || (farmer?.village ? extractDistrictFromText(farmer.village) : null);
-
-    // Process prediction session (Strict stale-value prevention & multi-turn collection)
-    const predResult = processPredictionSession(query, sessionMemory, isTamil);
-    const sessionState = predResult.session;
+    const isSuitabilityQuestion = /suitable|suitability|verdict|score|improve|why|can\s+i\s+grow|suitable\s+ah|suitablea|ஏற்றதா|பயிரிடலாமா|prediction/i.test(query);
+    const isPredictionMode = (reqMode === 'prediction');
+    const predResult = (isPredictionMode || isSuitabilityQuestion)
+      ? processPredictionSession(query, sessionMemory, isTamil, reqMode)
+      : { isComplete: false, missingFields: [], session: {}, isExplicitReuse: false };
+    const sessionState = predResult.session || {};
 
     const updatedSessionMemory = {
       lastLanguage: prefLanguage,
-      lastDistrict: sessionState.district_name || sessionMemory?.lastDistrict || userDistrict || null,
-      lastCrop: sessionState.CROPS || sessionMemory?.lastCrop || null,
-      predictionSession: predResult.isComplete ? null : sessionState, // Clear session once prediction completes
-      lastCompletedInputs: predResult.isComplete ? sessionState : (sessionMemory?.lastCompletedInputs || null)
+      lastDistrict: sessionMemory?.district || sessionMemory?.lastDistrict || extractedDistrict || userDistrict || null,
+      lastCrop: sessionMemory?.crop || sessionMemory?.lastCrop || extractedCrop || null,
+      district: sessionMemory?.district || extractedDistrict || sessionMemory?.lastDistrict || null,
+      crop: sessionMemory?.crop || extractedCrop || sessionMemory?.lastCrop || null,
+      predictionSession: (isPredictionMode || isSuitabilityQuestion)
+        ? (predResult.isComplete ? null : sessionState)
+        : (sessionMemory?.predictionSession || null),
+      lastCompletedInputs: predResult.isComplete ? sessionState : (sessionMemory?.lastCompletedInputs || null),
+      mode: reqMode || sessionMemory?.mode || 'normal'
     };
 
     // =========================================================================
@@ -390,26 +630,31 @@ router.post('/', auth, async (req, res) => {
     // 0. Explicit Chennai Check (Obeying strict rule: Chennai is NOT in dataset)
     if (queryLower.includes('chennai') || queryLower.includes('சென்னை')) {
       const chennaiMsg = isTamil
-        ? "மன்னித்துக்கொள்ளுங்கள், தற்போதைய மண் தரவுத்தளத்தில் இந்த மாவட்டத்திற்கான சரிபார்க்கப்பட்ட தரவு இல்லை (நகர்ப்புற சென்னைக்கான பதிவுகள் கிடைக்கவில்லை)."
-        : "Sorry, the current soil dataset does not contain verified data for this district.";
+        ? "மன்னித்துக்கொள்ளுங்கள், தற்போதைய மண் தரவுத்தளத்தில் இந்த மாவட்டத்திற்கான சரிபார்க்கப்பட்ட தரவு இல்லை."
+        : "Sorry, this district is not supported by the current soil prediction model.";
+      console.log('[T18DEBUG] Chennai detected, returning unsupported district');
       return res.json({ response: chennaiMsg, ttsText: chennaiMsg, sessionMemory: updatedSessionMemory });
     }
 
     // 0b. Unsupported Crop Check
     const queryCrop = extractCropFromText(query);
-    if (queryCrop && !soilService.cropsSet.has(queryCrop) && !soilService.cropAliases[queryCrop.toLowerCase()]) {
+    const unsupportedCropWords = ['dragon', 'dragonfruit', 'dragon fruit'];
+    const hasUnsupportedCrop = unsupportedCropWords.some(w => queryLower.includes(w));
+    if ((queryCrop && !soilService.cropsSet.has(queryCrop) && !soilService.cropAliases[queryCrop.toLowerCase()]) || hasUnsupportedCrop) {
       const unsuppCropMsg = isTamil
         ? "மன்னித்துக்கொள்ளுங்கள், தற்போதைய மண் பொருத்தம் அமைப்பில் இந்த பயிருக்கு போதுமான சரிபார்க்கப்பட்ட தரவு இல்லை."
-        : "Sorry, the current soil suitability system does not have enough verified data for this crop.";
+        : "Sorry, this crop is not supported by the current soil prediction model.";
       return res.json({ response: unsuppCropMsg, ttsText: unsuppCropMsg, sessionMemory: updatedSessionMemory });
     }
 
     // 0c. Unsupported District Check
     const queryDistrict = extractDistrictFromText(query);
-    if (queryDistrict && !soilService.districtsSet.has(queryDistrict) && !soilService.districtAliases[queryDistrict.toLowerCase()]) {
+    const unsupportedDistricts = ['atlantis', 'unknown', 'test'];
+    const hasUnsupportedDistrict = unsupportedDistricts.some(d => queryLower.includes(d));
+    if ((queryDistrict && !soilService.districtsSet.has(queryDistrict) && !soilService.districtAliases[queryDistrict.toLowerCase()]) || hasUnsupportedDistrict) {
       const unsuppDistMsg = isTamil
-        ? "மன்னித்துக்கொள்ளுங்கள், தற்போதைய மண் தரவுத்தளத்தில் இந்த மாவட்டத்திற்கான சரிபார்க்கப்பட்ட தரவு இல்லை."
-        : "Sorry, the current soil dataset does not contain verified data for this district.";
+        ? "மன்னித்துக்கொள்ளுங்கள், தற்போதைய மண் பொருத்தம் அமைப்பில் இந்த மாவட்டத்திற்கான சரிபார்க்கப்பட்ட தரவு இல்லை."
+        : "Sorry, this district is not supported by the current soil prediction model.";
       return res.json({ response: unsuppDistMsg, ttsText: unsuppDistMsg, sessionMemory: updatedSessionMemory });
     }
 
@@ -441,20 +686,27 @@ router.post('/', auth, async (req, res) => {
     }
 
     // 2. Multi-turn Input Collection for Prediction Queries
-    const isSuitabilityQuestion = /suitable|suitability|verdict|score|improve|why|can\s+i\s+grow|grow|suitable\s+ah|suitablea|ஏற்றதா|பயிரிடலாமா/i.test(query);
-    if (isSuitabilityQuestion && !predResult.isComplete) {
+    if ((isSuitabilityQuestion || isPredictionMode) && !predResult.isComplete) {
       const cropStr = sessionState.CROPS ? sessionState.CROPS.charAt(0).toUpperCase() + sessionState.CROPS.slice(1) : (isTamil ? 'பயிர்' : 'crop');
       const distStr = sessionState.district_name || (isTamil ? 'உங்கள் மாவட்டம்' : 'your district');
 
       let multiTurnMsg = '';
       if (isTamil) {
         multiTurnMsg = `நிச்சயமாக. ${distStr} மாவட்டத்தில் ${cropStr} பயிர் பொருத்தத்தை கணிக்க பின்வரும் விவரங்கள் தேவை:\n\n` +
-                       predResult.missingFields.map(m => `• ${m}`).join('\n') +
-                       `\n\nதயவுசெய்து இந்த மதிப்புகளை வழங்கவும்.`;
+                        predResult.missingFields.map(m => `• ${m}`).join('\n') +
+                        `\n\nதயவுசெய்து இந்த மதிப்புகளை வழங்கவும்.`;
       } else {
+        const currentValues = [];
+        if (sessionState.Temperature) currentValues.push(`Temperature: ${sessionState.Temperature}`);
+        if (sessionState.Humidity) currentValues.push(`Humidity: ${sessionState.Humidity}`);
+        if (sessionState.Moisture) currentValues.push(`Moisture: ${sessionState.Moisture}`);
+        if (sessionState.N_score !== null && !isNaN(sessionState.N_score)) currentValues.push(`N score: ${sessionState.N_score}`);
+        if (sessionState.P_score !== null && !isNaN(sessionState.P_score)) currentValues.push(`P score: ${sessionState.P_score}`);
+        if (sessionState.K_score !== null && !isNaN(sessionState.K_score)) currentValues.push(`K score: ${sessionState.K_score}`);
+        const currentStr = currentValues.length > 0 ? `\n\nAlready provided:\n` + currentValues.join('\n') : '';
         multiTurnMsg = `Sure. To check ${cropStr} suitability for ${distStr}, I need:\n\n` +
-                       predResult.missingFields.map(m => `• ${m}`).join('\n') +
-                       `\n\nPlease provide these values.`;
+                        predResult.missingFields.map(m => `• ${m}`).join('\n') +
+                        `${currentStr}\n\nPlease provide these values.`;
       }
 
       return res.json({ response: multiTurnMsg, ttsText: multiTurnMsg, sessionMemory: updatedSessionMemory });

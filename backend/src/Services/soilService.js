@@ -621,6 +621,79 @@ class SoilService {
     };
   }
 
+  async getDistrictInfo(rawDistrict) {
+    const rec = await this.getSuitableCrops(rawDistrict);
+    if (!rec.success) return rec;
+    const list = this.districtCropsList.get(rec.district.toLowerCase().trim()) || [];
+    const n = list.length || 1;
+    let t = 0;
+    let h = 0;
+    let m = 0;
+    for (const s of list) {
+      t += s.avgTemp || 0;
+      h += s.avgHum || 0;
+      m += s.avgMoist || 0;
+    }
+    return {
+      success: true,
+      district: rec.district,
+      cropCount: rec.totalCropsAnalyzed,
+      topCrops: rec.topCrops.slice(0, 6),
+      avgTemperature: list.length ? parseFloat((t / list.length).toFixed(1)) : null,
+      avgHumidity: list.length ? parseFloat((h / n).toFixed(1)) : null,
+      avgMoisture: list.length ? parseFloat((m / n).toFixed(1)) : null
+    };
+  }
+
+  async getNpkRequirement(rawCrop) {
+    await this.ensureLoaded();
+    const crop = this.normalizeCrop(rawCrop);
+    if (!crop) {
+      return { success: false, error: 'crop_missing' };
+    }
+    const cropMeta = this.cropMetaMap.get(crop.toLowerCase().trim());
+    if (!cropMeta) {
+      return { success: false, error: 'crop_missing' };
+    }
+    return {
+      success: true,
+      crop: cropMeta.crop || crop,
+      nitrogen: cropMeta.N_req,
+      phosphorus: cropMeta.P_req,
+      potassium: cropMeta.K_req
+    };
+  }
+
+  async getCropInfo(rawCrop, rawDistrict) {
+    await this.ensureLoaded();
+    const crop = this.normalizeCrop(rawCrop);
+    if (!crop) {
+      return { success: false, error: 'crop_missing' };
+    }
+    const npk = await this.getNpkRequirement(crop);
+    const water = await this.getWaterRequirement(crop, rawDistrict);
+    const climate = await this.getCropClimate(crop, rawDistrict);
+    return {
+      success: true,
+      crop: npk.crop,
+      npk,
+      water,
+      climate
+    };
+  }
+
+  async compareCrops(rawA, rawB, rawDistrict) {
+    await this.ensureLoaded();
+    const a = this.normalizeCrop(rawA);
+    const b = this.normalizeCrop(rawB);
+    if (!a || !b) {
+      return { success: false, error: 'crop_missing' };
+    }
+    const infoA = await this.getCropInfo(a, rawDistrict);
+    const infoB = await this.getCropInfo(b, rawDistrict);
+    return { success: true, a: infoA, b: infoB };
+  }
+
   async checkManualSoilSuitability(params) {
     await this.ensureLoaded();
 
