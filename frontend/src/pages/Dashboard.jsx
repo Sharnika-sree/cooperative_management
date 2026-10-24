@@ -230,14 +230,14 @@ const Dashboard = () => {
                 Warehouse Monitoring
               </h3>
               {data?.warehouse ? (
-                <div className="space-y-6 mt-4">
-                  <div className="flex items-center justify-between">
+                <div className="space-y-5 mt-4">
+                  <div className="flex items-center justify-between gap-3 min-h-[2.5rem]">
                     <span className="text-gray-500 font-medium text-sm">Temperature</span>
-                    <span className="text-xl font-bold text-gray-950">{data.warehouse.temperature}°C</span>
+                    <span className="text-xl font-bold text-gray-950 whitespace-nowrap">{data.warehouse.temperature}°C</span>
                   </div>
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-3 min-h-[2.5rem]">
                     <span className="text-gray-500 font-medium text-sm">Humidity</span>
-                    <span className={`text-xl font-bold ${isHighHumidity ? 'text-red-600' : 'text-blue-600'}`}>{data.warehouse.humidity}%</span>
+                    <span className={`text-xl font-bold whitespace-nowrap ${isHighHumidity ? 'text-red-600' : 'text-blue-600'}`}>{data.warehouse.humidity}%</span>
                   </div>
                   {isHighHumidity && (
                     <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-xs flex items-start leading-relaxed">
@@ -261,8 +261,6 @@ const Dashboard = () => {
             )}
           </div>
         </div>
-
-        <Chatbot />
       </div>
     )
   }
@@ -464,20 +462,6 @@ const Dashboard = () => {
             </div>
             <ChevronRight className="w-5 h-5 text-gray-400 shrink-0 mt-1" />
           </button>
-
-          {/* Card 6: Chatbot Assistant */}
-          <button 
-            onClick={() => setShowChatbotWindow(!showChatbotWindow)}
-            className={`p-6 rounded-2xl border text-left flex items-start justify-between transition-all ${
-              showChatbotWindow ? 'bg-primary-50 border-primary-400 ring-2 ring-primary-500/10' : 'bg-white border-gray-100 hover:shadow-md'
-            }`}
-          >
-            <div className="space-y-2.5">
-              <span className="text-2xl block">{uiLabels.assistant}</span>
-              <p className="text-sm font-bold text-gray-500">{uiLabels.assistantSub}</p>
-            </div>
-            <ChevronRight className="w-5 h-5 text-gray-400 shrink-0 mt-1" />
-          </button>
         </div>
 
         {/* Dynamic Display Sections below the Grid Cards */}
@@ -579,9 +563,9 @@ const Dashboard = () => {
                     }`}
                   >
                     <div>
-                      <div className="flex justify-between items-start">
+                      <div className="flex justify-between items-start gap-3">
                         <h4 className="font-extrabold text-gray-900 text-base">{scheme.title}</h4>
-                        <span className={`text-xs px-2.5 py-1 rounded-full font-bold uppercase ${
+                        <span className={`text-[10px] px-2 py-1 rounded-full font-bold uppercase whitespace-nowrap ${
                           scheme.isEligible ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                         }`}>
                           {scheme.isEligible ? 'Eligible' : 'Not Eligible'}
@@ -589,9 +573,9 @@ const Dashboard = () => {
                       </div>
                       <p className="text-xs text-gray-500 mt-2 leading-relaxed">{scheme.description}</p>
                     </div>
-                    <div className="pt-2 border-t border-gray-200/50 flex justify-between text-xs items-center">
+                    <div className="pt-2 border-t border-gray-200/50 flex justify-between text-xs items-center gap-2">
                       <span className="text-gray-400 font-medium">Status Check:</span>
-                      <span className={`font-semibold ${scheme.isEligible ? 'text-green-700' : 'text-red-700'}`}>
+                      <span className={`font-semibold text-right ${scheme.isEligible ? 'text-green-700' : 'text-red-700'}`}>
                         {scheme.reason}
                       </span>
                     </div>
@@ -663,16 +647,6 @@ const Dashboard = () => {
             <p className="text-gray-400 text-sm">No announcements posted by cooperative managers.</p>
           )}
         </div>
-
-        {/* AI Chatbot Assistant floating popup if enabled */}
-        {showChatbotWindow && (
-          <div className="fixed bottom-6 right-6 z-50">
-            <Chatbot />
-          </div>
-        )}
-        
-        {/* Fallback floating button if chatbot isn't checked as card but they want it */}
-        {!showChatbotWindow && <Chatbot />}
 
         {/* EDIT PROFILE MODAL */}
         {showEditModal && (

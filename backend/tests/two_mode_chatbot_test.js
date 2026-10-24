@@ -131,15 +131,15 @@ async function run() {
     assert(t.calls === 0, 'T6 NO model call', `calls=${t.calls}`);
     assert(!hasLabel(t.text) && /\bP\b/.test(t.text) && /\bK\b/.test(t.text), 'T6 asks for P and K');
 
-    // ---- TEST 7/8/9: INVALID N/P/K
+    // ---- TEST 7/8/9: OUT-OF-RANGE N/P/K
     s = await chat('Soil Prediction', null, 'prediction');
     s = await chat('Groundnut Salem', s.mem, 'prediction');
-    t = await chat('35 40 30 2 0 0.5', s.mem, 'prediction');
-    assert(t.calls === 0 && !hasLabel(t.text) && /N must be 0, 0\.5, or 1/.test(t.text), 'T7 reject N=2', t.text.slice(0, 160));
+    t = await chat('35 40 30 101 0 0.5', s.mem, 'prediction');
+    assert(t.calls === 0 && !hasLabel(t.text) && /N must be between 0 and 100\./.test(t.text), 'T7 reject N=101', t.text.slice(0, 160));
     t = await chat('35 40 30 0.5 -1 0.5', s.mem, 'prediction');
-    assert(t.calls === 0 && !hasLabel(t.text) && /P must be 0, 0\.5, or 1/.test(t.text), 'T8 reject P=-1');
-    t = await chat('35 40 30 0.5 0 5', s.mem, 'prediction');
-    assert(t.calls === 0 && !hasLabel(t.text) && /K must be 0, 0\.5, or 1/.test(t.text), 'T9 reject K=5');
+    assert(t.calls === 0 && !hasLabel(t.text) && /P must be between 0 and 100\./.test(t.text), 'T8 reject P=-1');
+    t = await chat('35 40 30 0.5 0 150', s.mem, 'prediction');
+    assert(t.calls === 0 && !hasLabel(t.text) && /K must be between 0 and 100\./.test(t.text), 'T9 reject K=150');
 
     // ---- TEST 10: NEW PREDICTION DOES NOT REUSE OLD VALUES
     let f = await chat('Soil Prediction', null, 'prediction');

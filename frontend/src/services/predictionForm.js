@@ -20,7 +20,7 @@ export const PREDICTION_FIELDS = [
 export const NUMERIC_FIELD_KEYS = ['temperature', 'humidity', 'moisture', 'n', 'p', 'k'];
 
 export const POSITIONAL_ORDER = ['temperature', 'humidity', 'moisture', 'n', 'p', 'k'];
-export const VALID_NPK = [0, 0.5, 1];
+export const VALID_NPK = { min: 0, max: 100 };
 
 // ============================================================================
 // TAMIL LOCALIZATION MAPPING
@@ -233,20 +233,30 @@ const FORM_STRINGS = {
     ph_temperature: 'Example: 35',
     ph_humidity: 'Example: 40',
     ph_moisture: 'Example: 30',
-    ph_n: 'Example: 0.5',
-    ph_p: 'Example: 0',
-    ph_k: 'Example: 0.5',
-    npkHint: 'Enter 0, 0.5 or 1',
+    ph_n: 'Example: 60',
+    ph_p: 'Example: 50',
+    ph_k: 'Example: 55',
+    npkHint: 'Enter a value from 0 to 100',
     predict: 'Predict',
     startNew: '↺ Start New Prediction',
     requiredTemplate: '{field} is required before prediction.',
     invalidNumberTemplate: '{field} must be a valid number.',
-    invalidNPKTemplate: '{field} must be 0, 0.5, or 1.',
+    invalidNPKTemplate: '{field} must be a number between 0 and 100.',
     fieldNames: {
       district: 'District', crop: 'Crop', temperature: 'Temperature',
       humidity: 'Humidity', moisture: 'Moisture',
       n: 'N Value', p: 'P Value', k: 'K Value'
-    }
+    },
+    modeManual: 'Manual Entry',
+    modeSensor: 'Live Sensor (Future IoT)',
+    sensorNotConnected: 'Not Connected',
+    sensorConnected: 'Connected',
+    sensorStale: 'Stale Readings',
+    noSensorMsg: 'No sensor device is connected. Connect an ESP32 device to receive live readings.',
+    refreshReadings: 'Refresh Readings',
+    lastReadingTime: 'Last Reading',
+    npkUncalibratedNotice: 'NPK Sensor Telemetry: Uncalibrated',
+    npkUncalibratedDesc: 'Raw sensor readings require lab probe calibration before model prediction. Enter calibrated N, P, K scores manually or use Manual Entry.'
   },
   Tamil: {
     formTitle: 'மண் கணிப்பு',
@@ -264,20 +274,30 @@ const FORM_STRINGS = {
     ph_temperature: 'எடுத்துக்காட்டு: 35',
     ph_humidity: 'எடுத்துக்காட்டு: 40',
     ph_moisture: 'எடுத்துக்காட்டு: 30',
-    ph_n: 'எடுத்துக்காட்டு: 0.5',
-    ph_p: 'எடுத்துக்காட்டு: 0',
-    ph_k: 'எடுத்துக்காட்டு: 0.5',
-    npkHint: '0 அல்லது 0.5 அல்லது 1 மட்டும்',
+    ph_n: 'எடுத்துக்காட்டு: 60',
+    ph_p: 'எடுத்துக்காட்டு: 50',
+    ph_k: 'எடுத்துக்காட்டு: 55',
+    npkHint: '0 முதல் 100 வரை ஒரு மதிப்பு உள்ளிடவும்',
     predict: 'கணி',
     startNew: 'புதிய கணிப்பு',
     requiredTemplate: 'கணிப்புக்கு முன் {field} தேவை.',
     invalidNumberTemplate: '{field} சரியான எண்ணாக இருக்க வேண்டும்.',
-    invalidNPKTemplate: '{field} 0 அல்லது 0.5 அல்லது 1 ஆக இருக்க வேண்டும்.',
+    invalidNPKTemplate: '{field} 0 முதல் 100 வரை இருக்க வேண்டும்.',
     fieldNames: {
       district: 'மாவட்டம்', crop: 'பயிர்', temperature: 'வெப்பநிலை',
       humidity: 'காற்றின் ஈரப்பதம்', moisture: 'மண் ஈரப்பதம்',
       n: 'நைட்ரஜன் மதிப்பு', p: 'பாஸ்பரஸ் மதிப்பு', k: 'பொட்டாசியம் மதிப்பு'
-    }
+    },
+    modeManual: 'கைமுறை பதிவு',
+    modeSensor: 'நேரடி சென்சார் (எதிர்கால IoT)',
+    sensorNotConnected: 'இணைக்கப்படவில்லை',
+    sensorConnected: 'இணைக்கப்பட்டது',
+    sensorStale: 'பழைய அளவீடுகள்',
+    noSensorMsg: 'சென்சார் கருவி இணைக்கப்படவில்லை. நேரடி அளவீடுகளைப் பெற ESP32 கருவியை இணைக்கவும்.',
+    refreshReadings: 'அளவீடுகளை புதுப்பி',
+    lastReadingTime: 'கடைசி அளவீடு',
+    npkUncalibratedNotice: 'NPK சென்சார் அளவீடு: அளவீடு செய்யப்படவில்லை',
+    npkUncalibratedDesc: 'நேரடி NPK சென்சார் அளவீடுகளுக்கு மாதிரி கணிப்புக்கு முன் அளவுத்திருத்தம் தேவை. அளவுத்திருத்தம் செய்யப்பட்ட N, P, K மதிப்புகளை உள்ளிடவும் அல்லது கைமுறை பதிவைப் பயன்படுத்தவும்.'
   }
 };
 
@@ -420,7 +440,7 @@ export function validatePredictionForm(fields, language) {
       errors[key] = fill(S.invalidNumberTemplate, fn[key]);
       continue;
     }
-    if ((key === 'n' || key === 'p' || key === 'k') && !VALID_NPK.includes(v)) {
+    if ((key === 'n' || key === 'p' || key === 'k') && (v < VALID_NPK.min || v > VALID_NPK.max)) {
       errors[key] = fill(S.invalidNPKTemplate, fn[key]);
       continue;
     }

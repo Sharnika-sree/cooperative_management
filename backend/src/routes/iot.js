@@ -1,23 +1,8 @@
 const express = require('express');
 const router = express.Router();
+const { sensorStore } = require('./sensors');
 
-// In-memory ring buffer / cache for IoT sensor data
-const sensorDataCache = new Map();
-let latestGlobalReading = {
-  deviceId: 'SOIL-001',
-  nitrogen: 45,
-  phosphorus: 30,
-  potassium: 40,
-  temperature: 29.0,
-  humidity: 70.0,
-  moisture: 3.5,
-  timestamp: new Date()
-};
-
-// Seed default reading
-sensorDataCache.set('SOIL-001', [latestGlobalReading]);
-
-// 1. Ingest Sensor Data from IoT devices (e.g. ESP32)
+// 1. Ingest Sensor Data from IoT devices (legacy endpoint maintained for backwards compatibility)
 // POST /api/iot/sensor-data
 router.post('/sensor-data', (req, res) => {
   try {
@@ -31,42 +16,45 @@ router.post('/sensor-data', (req, res) => {
       moisture
     } = req.body;
 
-    const N = parseFloat(nitrogen);
-    const P = parseFloat(phosphorus);
-    const K = parseFloat(potassium);
+    const N = nitrogen !== undefined && nitrogen !== null ? parseFloat(nitrogen) : null;
+    const P = phosphorus !== undefined && phosphorus !== null ? parseFloat(phosphorus) : null;
+    const K = potassium !== undefined && potassium !== null ? parseFloat(potassium) : null;
     const Temp = parseFloat(temperature);
     const Hum = parseFloat(humidity);
     const Moist = parseFloat(moisture);
 
-    if (isNaN(N) || isNaN(P) || isNaN(K) || isNaN(Temp) || isNaN(Hum) || isNaN(Moist)) {
-      return res.status(400).json({ error: 'All sensor readings (nitrogen, phosphorus, potassium, temperature, humidity, moisture) must be valid numbers.' });
+    if (isNaN(Temp) || isNaN(Hum) || isNaN(Moist)) {
+      return res.status(400).json({ error: 'Sensor readings (temperature, humidity, moisture) must be valid numbers.' });
     }
 
-    if (N < 0 || P < 0 || K < 0 || Hum < 0 || Hum > 100 || Moist < 0) {
+    if (Hum < 0 || Hum > 100 || Moist < 0 || Moist > 100) {
       return res.status(400).json({ error: 'Invalid sensor readings range.' });
     }
 
+    const cleanDeviceId = String(deviceId).trim().toUpperCase();
     const reading = {
       id: `reading_${Date.now()}`,
-      deviceId: String(deviceId).trim().toUpperCase(),
+      deviceId: cleanDeviceId,
       nitrogen: N,
       phosphorus: P,
       potassium: K,
       temperature: Temp,
       humidity: Hum,
       moisture: Moist,
-      timestamp: new Date()
+      rawNpk: { nRaw: N, pRaw: P, kRaw: K },
+      timestamp: new Date().toISOString(),
+      receivedAt: new Date().toISOString()
     };
 
-    if (!sensorDataCache.has(reading.deviceId)) {
-      sensorDataCache.set(reading.deviceId, []);
+    if (!sensorStore.byDevice.has(cleanDeviceId)) {
+      sensorStore.byDevice.set(cleanDeviceId, []);
     }
 
-    const history = sensorDataCache.get(reading.deviceId);
+    const history = sensorStore.byDevice.get(cleanDeviceId);
     history.unshift(reading);
-    if (history.length > 50) history.pop(); // Keep latest 50 readings per device
+    if (history.length > 50) history.pop();
 
-    latestGlobalReading = reading;
+    sensorStore.latestGlobal = reading;
 
     res.status(201).json({
       success: true,
@@ -84,12 +72,12 @@ router.post('/sensor-data', (req, res) => {
 router.get('/latest/:deviceId', (req, res) => {
   try {
     const deviceId = req.params.deviceId.trim().toUpperCase();
-    const history = sensorDataCache.get(deviceId);
+    const history = sensorStore.byDevice.get(deviceId);
 
     if (!history || history.length === 0) {
       return res.status(404).json({
         error: `No sensor readings found for device "${deviceId}".`,
-        availableDevices: Array.from(sensorDataCache.keys())
+        availableDevices: Array.from(sensorStore.byDevice.keys())
       });
     }
 
@@ -103,7 +91,13 @@ router.get('/latest/:deviceId', (req, res) => {
 // GET /api/iot/latest
 router.get('/latest', (req, res) => {
   try {
-    res.json(latestGlobalReading);
+    if (!sensorStore.latestGlobal) {
+      return res.status(404).json({
+        error: 'No sensor readings available yet. No sensor device is connected.',
+        connected: false
+      });
+    }
+    res.json(sensorStore.latestGlobal);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch latest sensor reading.' });
   }
@@ -113,9 +107,9 @@ router.get('/latest', (req, res) => {
 // GET /api/iot/devices
 router.get('/devices', (req, res) => {
   try {
-    const devices = Array.from(sensorDataCache.keys()).map(id => ({
+    const devices = Array.from(sensorStore.byDevice.keys()).map(id => ({
       deviceId: id,
-      lastSeen: sensorDataCache.get(id)[0]?.timestamp || null
+      lastSeen: sensorStore.byDevice.get(id)[0]?.receivedAt || sensorStore.byDevice.get(id)[0]?.timestamp || null
     }));
     res.json(devices);
   } catch (error) {

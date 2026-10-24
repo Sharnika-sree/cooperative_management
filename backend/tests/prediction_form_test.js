@@ -86,9 +86,9 @@ async function run() {
   assert(v.complete === false && v.errors.temperature === 'Temperature must be a valid number.', 'A4 Temperature abc field error', JSON.stringify(v.errors));
   assert(!v.errors.n && !v.errors.p && !v.errors.k, 'A4 NPK not blamed');
 
-  // A5: NPK outside model contract rejected with field-specific message
+  // A5: Valid soil-score values within the model contract are accepted.
   v = form.validatePredictionForm({ ...FULL, n: '2' }, 'English');
-  assert(v.complete === false && v.errors.n === 'N Value must be 0, 0.5, or 1.', 'A5 N=2 rejected', v.errors.n);
+  assert(v.complete === true && v.values.n === 2, 'A5 N=2 accepted under 0–100 model contract', JSON.stringify(v.errors));
 
   // A6 (spec Test 5): Tamil strings fully Tamil, placeholders localized
   const TS = form.formStrings('Tamil');

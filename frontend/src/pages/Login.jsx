@@ -14,8 +14,17 @@ const Login = () => {
     e.preventDefault()
     setError('')
     try {
-      await login(email, password)
-      navigate('/')
+      const data = await login(email, password)
+      // Redirect based on user role
+      if (data.user.role === 'ADMIN') {
+        navigate('/admin')
+      } else if (data.user.role === 'STAFF') {
+        navigate('/staff')
+      } else if (data.user.role === 'FARMER') {
+        navigate('/farmer')
+      } else {
+        navigate('/')
+      }
     } catch (err) {
       console.error('Login error:', err)
       setError(err.response?.data?.error || err.message || 'Invalid credentials')

@@ -192,17 +192,18 @@ function processPredictionSession(query, sessionMemory, isTamil, mode) {
 
   // Validate NPK values
   const npkErrors = [];
-  const validNPK = [0, 0.5, 1];
-  if (currentSession.N_score !== null && !isNaN(currentSession.N_score) && !validNPK.includes(currentSession.N_score)) {
-    npkErrors.push('N must be 0, 0.5, or 1.');
+  const validNPKMin = 0;
+  const validNPKMax = 100;
+  if (currentSession.N_score !== null && !isNaN(currentSession.N_score) && (currentSession.N_score < validNPKMin || currentSession.N_score > validNPKMax)) {
+    npkErrors.push('N must be between 0 and 100.');
     currentSession.N_score = null;
   }
-  if (currentSession.P_score !== null && !isNaN(currentSession.P_score) && !validNPK.includes(currentSession.P_score)) {
-    npkErrors.push('P must be 0, 0.5, or 1.');
+  if (currentSession.P_score !== null && !isNaN(currentSession.P_score) && (currentSession.P_score < validNPKMin || currentSession.P_score > validNPKMax)) {
+    npkErrors.push('P must be between 0 and 100.');
     currentSession.P_score = null;
   }
-  if (currentSession.K_score !== null && !isNaN(currentSession.K_score) && !validNPK.includes(currentSession.K_score)) {
-    npkErrors.push('K must be 0, 0.5, or 1.');
+  if (currentSession.K_score !== null && !isNaN(currentSession.K_score) && (currentSession.K_score < validNPKMin || currentSession.K_score > validNPKMax)) {
+    npkErrors.push('K must be between 0 and 100.');
     currentSession.K_score = null;
   }
 

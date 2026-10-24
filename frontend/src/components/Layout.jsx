@@ -4,10 +4,10 @@ import Chatbot from './Chatbot'
 import { ChatbotProvider } from '../context/ChatbotContext'
 import { 
   Layout as LayoutIcon, Users, UserCheck, Package, 
-  FileText, Megaphone, Warehouse, LogOut, ClipboardList, Bot, Sprout 
+  FileText, Megaphone, Warehouse, LogOut, ClipboardList, Sprout 
 } from 'lucide-react'
 
-const Layout = () => {
+const Layout = ({ children }) => {
   const { user, logout } = useAuth()
   const location = useLocation()
 
@@ -16,35 +16,30 @@ const Layout = () => {
 
   if (user?.role === 'ADMIN') {
     navigation = [
-      { name: 'Dashboard', href: '/', icon: LayoutIcon },
-      { name: 'Staff Management', href: '/staff', icon: UserCheck },
-      { name: 'Farmers Directory', href: '/farmers', icon: Users },
-      { name: 'Gov Schemes', href: '/schemes', icon: FileText },
-      { name: 'Soil Suitability', href: '/soil-suitability', icon: Sprout },
-      { name: 'Announcements', href: '/announcements', icon: Megaphone },
-      { name: 'Warehouse IoT', href: '/warehouse', icon: Warehouse },
-      { name: 'AI Assistant', href: '/chatbot-settings', icon: Bot },
-      { name: 'Service Requests', href: '/service-requests', icon: ClipboardList },
+      { name: 'Dashboard', href: '/app/admin', icon: LayoutIcon },
+      { name: 'Staff Management', href: '/app/staff-management', icon: UserCheck },
+      { name: 'Farmers Directory', href: '/app/farmers', icon: Users },
+      { name: 'Gov Schemes', href: '/app/schemes', icon: FileText },
+      { name: 'Announcements', href: '/app/announcements', icon: Megaphone },
+      { name: 'Warehouse IoT', href: '/app/warehouse', icon: Warehouse },
+      { name: 'Service Requests', href: '/app/service-requests', icon: ClipboardList },
     ]
   } else if (user?.role === 'STAFF') {
     navigation = [
-      { name: 'Dashboard', href: '/', icon: LayoutIcon },
-      { name: 'Farmers Registry', href: '/farmers', icon: Users },
-      { name: 'Inventory & Dist', href: '/inventory', icon: Package },
-      { name: 'Gov Schemes', href: '/schemes', icon: FileText },
-      { name: 'Soil Suitability', href: '/soil-suitability', icon: Sprout },
-      { name: 'Service Requests', href: '/service-requests', icon: ClipboardList },
-      { name: 'Warehouse Entry', href: '/warehouse', icon: Warehouse },
-      { name: 'AI Assistant', href: '/chatbot-settings', icon: Bot },
+      { name: 'Dashboard', href: '/app/staff-dashboard', icon: LayoutIcon },
+      { name: 'Farmers Registry', href: '/app/farmers', icon: Users },
+      { name: 'Inventory & Dist', href: '/app/inventory', icon: Package },
+      { name: 'Gov Schemes', href: '/app/schemes', icon: FileText },
+      { name: 'Service Requests', href: '/app/service-requests', icon: ClipboardList },
+      { name: 'Warehouse Entry', href: '/app/warehouse', icon: Warehouse },
     ]
   } else if (user?.role === 'FARMER') {
     navigation = [
-      { name: 'Dashboard', href: '/', icon: LayoutIcon },
-      { name: 'Soil Suitability', href: '/soil-suitability', icon: Sprout },
-      { name: 'Eligible Schemes', href: '/schemes', icon: FileText },
-      { name: 'Announcements', href: '/announcements', icon: Megaphone },
-      { name: 'Service Requests', href: '/service-requests', icon: ClipboardList },
-      { name: 'AI Assistant', href: '/chatbot-settings', icon: Bot },
+      { name: 'Dashboard', href: '/app/farmer', icon: LayoutIcon },
+      { name: 'Soil Suitability', href: '/app/soil-suitability', icon: Sprout },
+      { name: 'Eligible Schemes', href: '/app/schemes', icon: FileText },
+      { name: 'Announcements', href: '/app/announcements', icon: Megaphone },
+      { name: 'Service Requests', href: '/app/service-requests', icon: ClipboardList },
     ]
   }
 
@@ -103,7 +98,7 @@ const Layout = () => {
       </nav>
 
       <main className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 flex-1">
-        <Outlet />
+        {children || <Outlet />}
       </main>
       {location.pathname !== '/chatbot-settings' && <Chatbot />}
     </div>

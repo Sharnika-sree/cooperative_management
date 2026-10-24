@@ -14,6 +14,7 @@ const serviceRequestRoutes = require('./routes/serviceRequests');
 const distributionRoutes = require('./routes/distributions');
 const soilRoutes = require('./routes/soil');
 const iotRoutes = require('./routes/iot');
+const { router: sensorRoutes } = require('./routes/sensors');
 
 const app = express();
 
@@ -33,6 +34,7 @@ app.use('/api/serviceRequests', serviceRequestRoutes);
 app.use('/api/distributions', distributionRoutes);
 app.use('/api/soil', soilRoutes);
 app.use('/api/iot', iotRoutes);
+app.use('/api/sensors', sensorRoutes);
 
 
 // Root route
@@ -56,7 +58,8 @@ app.get('/', (req, res) => {
       serviceRequests: '/api/serviceRequests',
       distributions: '/api/distributions',
       soil: '/api/soil',
-      iot: '/api/iot'
+      iot: '/api/iot',
+      sensors: '/api/sensors'
     }
   });
 });

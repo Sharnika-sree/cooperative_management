@@ -5,6 +5,7 @@ import {
   Sprout, Cpu, CheckCircle2, AlertTriangle, XCircle, 
   Thermometer, Droplets, Activity, RefreshCw, Send, HelpCircle, FileText 
 } from 'lucide-react'
+import { fetchSensorStatus, fetchLatestReading } from '../services/sensorService'
 
 const SoilSuitability = () => {
   const { user } = useAuth()
@@ -28,6 +29,7 @@ const SoilSuitability = () => {
 
   // IoT Sensor State
   const [deviceId, setDeviceId] = useState('SOIL-001')
+  const [sensorStatus, setSensorStatus] = useState(null)
   const [iotReading, setIotReading] = useState(null)
   const [fetchingIot, setFetchingIot] = useState(false)
   const [iotError, setIotError] = useState('')
@@ -60,22 +62,33 @@ const SoilSuitability = () => {
     try {
       setFetchingIot(true)
       setIotError('')
-      const res = await axios.get(`/api/iot/latest/${deviceId}`)
-      if (res.data) {
-        setIotReading(res.data)
-        setFormData(prev => ({
-          ...prev,
-          nitrogen: res.data.nitrogen.toString(),
-          phosphorus: res.data.phosphorus.toString(),
-          potassium: res.data.potassium.toString(),
-          temperature: res.data.temperature.toString(),
-          humidity: res.data.humidity.toString(),
-          moisture: res.data.moisture.toString()
-        }))
+      const status = await fetchSensorStatus(deviceId)
+      setSensorStatus(status)
+
+      if (status.connected) {
+        const res = await fetchLatestReading(deviceId)
+        if (res && res.reading) {
+          setIotReading(res.reading)
+          setFormData(prev => ({
+            ...prev,
+            temperature: res.reading.temperature.toString(),
+            humidity: res.reading.humidity.toString(),
+            moisture: res.reading.moisture.toString()
+          }))
+          return
+        }
+      }
+
+      setIotReading(null)
+      if (status.status === 'Stale') {
+        setIotError('Sensor readings are stale. Device may be offline or stopped transmitting.')
+      } else {
+        setIotError('No sensor device is connected. Connect an ESP32 device to receive live readings.')
       }
     } catch (err) {
       console.error('Failed to fetch IoT sensor reading:', err)
-      setIotError('Could not retrieve telemetry from selected device. Ensure sensor is online.')
+      setIotReading(null)
+      setIotError('Could not retrieve telemetry from selected device. Ensure sensor service is online.')
     } finally {
       setFetchingIot(false)
     }
@@ -175,65 +188,83 @@ const SoilSuitability = () => {
         {/* Left Column: Input Form */}
         <div className="lg:col-span-6 space-y-6">
           {mode === 'iot' && (
-            <div className="bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-100 p-5 rounded-2xl shadow-sm">
-              <div className="flex justify-between items-center mb-3">
-                <div className="flex items-center">
-                  <Cpu className="w-5 h-5 text-indigo-600 mr-2" />
+            <div className="bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-100 p-5 rounded-2xl shadow-sm space-y-3">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center space-x-2">
+                  <Cpu className="w-5 h-5 text-indigo-600" />
                   <span className="text-sm font-extrabold text-indigo-900">ESP32 / NPK Sensor Unit</span>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                    sensorStatus?.connected
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : sensorStatus?.status === 'Stale'
+                      ? 'bg-amber-100 text-amber-800'
+                      : 'bg-gray-100 text-gray-700'
+                  }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${
+                      sensorStatus?.connected ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'
+                    }`} />
+                    {sensorStatus?.connected
+                      ? 'Connected'
+                      : sensorStatus?.status === 'Stale'
+                      ? 'Stale Readings'
+                      : 'Not Connected'}
+                  </span>
                 </div>
                 <button
                   type="button"
                   onClick={fetchLatestIot}
                   disabled={fetchingIot}
-                  className="text-xs bg-white text-indigo-700 px-3 py-1.5 rounded-lg border border-indigo-200 hover:bg-indigo-50 font-bold flex items-center shadow-2xs"
+                  className="text-xs bg-white text-indigo-700 px-3 py-1.5 rounded-lg border border-indigo-200 hover:bg-indigo-50 font-bold flex items-center shadow-2xs disabled:opacity-50"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${fetchingIot ? 'animate-spin' : ''}`} />
-                  Sync Sensor
+                  Refresh Readings
                 </button>
               </div>
 
-              <div className="flex items-center space-x-3 mb-4">
+              <div className="flex items-center space-x-3">
                 <label className="text-xs font-bold text-gray-700">Device ID:</label>
                 <select
                   value={deviceId}
                   onChange={(e) => setDeviceId(e.target.value)}
-                  className="input-field text-xs py-1.5 px-3 bg-white w-40"
+                  className="input-field text-xs py-1.5 px-3 bg-white w-48"
                 >
                   <option value="SOIL-001">SOIL-001 (Field Unit A)</option>
                   <option value="SOIL-002">SOIL-002 (Greenhouse)</option>
                 </select>
               </div>
 
-              {iotReading ? (
-                <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                  <div className="bg-white p-2.5 rounded-xl border border-indigo-100">
-                    <span className="text-gray-400 block text-[10px] font-bold uppercase">Nitrogen</span>
-                    <span className="text-sm font-extrabold text-indigo-700">{iotReading.nitrogen} <span className="text-[10px] text-gray-400">mg/kg</span></span>
+              {iotReading && sensorStatus?.connected ? (
+                <div className="space-y-3">
+                  <div className="text-[11px] text-gray-500 font-medium">
+                    Last valid reading: {new Date(iotReading.deviceTimestamp || iotReading.receivedAt).toLocaleTimeString()}
                   </div>
-                  <div className="bg-white p-2.5 rounded-xl border border-indigo-100">
-                    <span className="text-gray-400 block text-[10px] font-bold uppercase">Phosphorus</span>
-                    <span className="text-sm font-extrabold text-indigo-700">{iotReading.phosphorus} <span className="text-[10px] text-gray-400">mg/kg</span></span>
+
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                    <div className="bg-white p-2.5 rounded-xl border border-indigo-100">
+                      <span className="text-gray-400 block text-[10px] font-bold uppercase">Temp</span>
+                      <span className="text-sm font-extrabold text-amber-600">{iotReading.temperature}°C</span>
+                    </div>
+                    <div className="bg-white p-2.5 rounded-xl border border-indigo-100">
+                      <span className="text-gray-400 block text-[10px] font-bold uppercase">Humidity</span>
+                      <span className="text-sm font-extrabold text-blue-600">{iotReading.humidity}%</span>
+                    </div>
+                    <div className="bg-white p-2.5 rounded-xl border border-indigo-100">
+                      <span className="text-gray-400 block text-[10px] font-bold uppercase">Moisture</span>
+                      <span className="text-sm font-extrabold text-teal-600">{iotReading.moisture}%</span>
+                    </div>
                   </div>
-                  <div className="bg-white p-2.5 rounded-xl border border-indigo-100">
-                    <span className="text-gray-400 block text-[10px] font-bold uppercase">Potassium</span>
-                    <span className="text-sm font-extrabold text-indigo-700">{iotReading.potassium} <span className="text-[10px] text-gray-400">mg/kg</span></span>
-                  </div>
-                  <div className="bg-white p-2.5 rounded-xl border border-indigo-100">
-                    <span className="text-gray-400 block text-[10px] font-bold uppercase">Temp</span>
-                    <span className="text-sm font-extrabold text-amber-600">{iotReading.temperature}°C</span>
-                  </div>
-                  <div className="bg-white p-2.5 rounded-xl border border-indigo-100">
-                    <span className="text-gray-400 block text-[10px] font-bold uppercase">Humidity</span>
-                    <span className="text-sm font-extrabold text-blue-600">{iotReading.humidity}%</span>
-                  </div>
-                  <div className="bg-white p-2.5 rounded-xl border border-indigo-100">
-                    <span className="text-gray-400 block text-[10px] font-bold uppercase">Moisture</span>
-                    <span className="text-sm font-extrabold text-teal-600">{iotReading.moisture}%</span>
+
+                  {/* NPK Sensor Status Note */}
+                  <div className="bg-amber-50 border border-amber-200 p-2.5 rounded-xl text-xs text-amber-900 leading-snug">
+                    <span className="font-extrabold block text-amber-800 mb-0.5">
+                      ⚠️ NPK Sensor Telemetry: Uncalibrated
+                    </span>
+                    Raw sensor nutrient readings require laboratory probe calibration before model prediction. Enter calibrated N, P, K scores manually in the form or use Manual Entry.
                   </div>
                 </div>
               ) : (
-                <div className="text-xs text-gray-500 text-center py-3">
-                  {iotError || 'Click Sync Sensor to retrieve latest live readings.'}
+                <div className="text-xs text-gray-600 bg-white/80 p-3 rounded-xl border border-indigo-100 leading-relaxed text-center">
+                  {iotError || 'No sensor device is connected. Connect an ESP32 device to receive live readings.'}
                 </div>
               )}
             </div>
@@ -394,12 +425,22 @@ const SoilSuitability = () => {
               <div className="pt-4">
                 <button
                   type="submit"
-                  disabled={analyzing}
-                  className="w-full btn-primary py-3 flex items-center justify-center font-bold text-sm bg-primary-600 hover:bg-primary-700 rounded-xl text-white transition-all shadow-sm"
+                  disabled={analyzing || (mode === 'iot' && (!sensorStatus?.connected || !iotReading))}
+                  title={
+                    mode === 'iot' && (!sensorStatus?.connected || !iotReading)
+                      ? 'No sensor device is connected. Connect an ESP32 device to receive live readings.'
+                      : 'Run Suitability Analysis'
+                  }
+                  className="w-full btn-primary py-3 flex items-center justify-center font-bold text-sm bg-primary-600 hover:bg-primary-700 rounded-xl text-white transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <Sprout className="w-4 h-4 mr-2" />
                   {analyzing ? 'Evaluating Soil Dataset...' : 'Run Suitability Analysis'}
                 </button>
+                {mode === 'iot' && (!sensorStatus?.connected || !iotReading) && (
+                  <p className="text-xs text-amber-600 font-semibold text-center mt-2">
+                    ⚠️ No live sensor connected. Switch to "Manual Soil Form" to analyze immediately.
+                  </p>
+                )}
               </div>
             </form>
           </div>
