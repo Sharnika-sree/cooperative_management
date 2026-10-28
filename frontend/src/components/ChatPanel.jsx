@@ -12,7 +12,7 @@ const ChatPanel = ({ variant = 'page', onClose }) => {
     suggestions,
     districtOptions, cropOptions,
     setInput, send, selectDistrict, selectCrop, selectMode,
-    speakMessage, toggleListening,
+    speakMessage, toggleListening, resetContext,
     mode, awaitingDistrict, awaitingCrop, strings
   } = useChatbot()
 
@@ -31,8 +31,13 @@ const ChatPanel = ({ variant = 'page', onClose }) => {
   }
 
   const actionBtnHandler = (sug) => {
-    if (sug.action === 'SELECT_DISTRICT') selectDistrict(null)
-    else send(sug.message || '', 'normal', sug.action)
+    if (sug.action === 'SELECT_DISTRICT') {
+      selectDistrict(null)
+    } else if (sug.action === 'RESET_CONVERSATION') {
+      resetContext()
+    } else {
+      send(sug.message || '', 'normal', sug.action)
+    }
   }
 
   return (

@@ -80,6 +80,8 @@ const PredictionForm = ({ compact = false }) => {
   useEffect(() => {
     if (entryMode === 'sensor') {
       refreshSensorData()
+      const timer = setInterval(refreshSensorData, 10000)
+      return () => clearInterval(timer)
     }
   }, [entryMode])
 
@@ -238,6 +240,25 @@ const PredictionForm = ({ compact = false }) => {
             ))}
           </select>
           {renderError('crop')}
+        </div>
+
+        <div className="col-span-2">
+          <label className="block text-[10px] font-bold text-gray-700 mb-0.5">
+            {isTamilMode ? 'மண் வகை' : 'Soil Type'}
+          </label>
+          <select
+            value={form.soilType || ''}
+            onChange={(e) => updateFormField('soilType', e.target.value)}
+            className="w-full px-2 py-1.5 border rounded-lg outline-none text-xs bg-white border-gray-200 focus:ring-1 focus:ring-emerald-500"
+          >
+            <option value="">{isTamilMode ? '-- மண் வகையைத் தேர்ந்தெடுக்கவும் --' : '-- Select Soil Type --'}</option>
+            <option value="Red Soil">{isTamilMode ? 'செம்மண்' : 'Red Soil'}</option>
+            <option value="Black Soil">{isTamilMode ? 'கரிசல் மண்' : 'Black Soil'}</option>
+            <option value="Alluvial Soil">{isTamilMode ? 'வண்டல் மண்' : 'Alluvial Soil'}</option>
+            <option value="Clay Loam">{isTamilMode ? 'களிமண்' : 'Clay Loam'}</option>
+            <option value="Sandy Loam">{isTamilMode ? 'மணற்பாங்கான மண்' : 'Sandy Loam'}</option>
+            <option value="Laterite Soil">{isTamilMode ? 'சரளை மண்' : 'Laterite Soil'}</option>
+          </select>
         </div>
 
         {[

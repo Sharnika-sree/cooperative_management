@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const prisma = require('../config/database');
 const {
   isReadingFresh,
   calibrateNpkReading,
@@ -48,7 +49,7 @@ function authenticateSensorDevice(req, res, next) {
  * 1. POST /api/sensors/readings
  * Receives telemetry from registered ESP32 devices.
  */
-router.post('/readings', authenticateSensorDevice, (req, res) => {
+router.post('/readings', authenticateSensorDevice, async (req, res) => {
   try {
     const {
       deviceId,
@@ -162,24 +163,52 @@ router.post('/readings', authenticateSensorDevice, (req, res) => {
     });
 
     const cleanDeviceId = deviceId.trim().toUpperCase();
+
+    // 1. Persist to PostgreSQL via Prisma
+    let dbRecord = null;
+    try {
+      dbRecord = await prisma.sensorReading.create({
+        data: {
+          deviceId: cleanDeviceId,
+          temperature: temp,
+          humidity: hum,
+          moisture: moist,
+          nRaw: parsedNRaw,
+          pRaw: parsedPRaw,
+          kRaw: parsedKRaw,
+          isCalibrated: calibratedNpk.isCalibrated,
+          calibrationStatus: calibratedNpk.calibrationStatus,
+          unitMetadata: typeof unitMetadata === 'object' && unitMetadata !== null ? unitMetadata : {},
+          deviceTimestamp: timestamp ? new Date(timestamp) : null,
+          receivedAt: new Date()
+        }
+      });
+    } catch (dbErr) {
+      console.error('PostgreSQL sensor persistence error:', dbErr.message);
+      return res.status(500).json({
+        error: 'Database Error',
+        message: 'Failed to persist sensor reading to database.'
+      });
+    }
+
     const reading = {
-      id: `reading_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
-      deviceId: cleanDeviceId,
-      temperature: temp,
-      humidity: hum,
-      moisture: moist,
+      id: dbRecord.id,
+      deviceId: dbRecord.deviceId,
+      temperature: dbRecord.temperature,
+      humidity: dbRecord.humidity,
+      moisture: dbRecord.moisture,
       rawNpk: {
-        nRaw: parsedNRaw,
-        pRaw: parsedPRaw,
-        kRaw: parsedKRaw
+        nRaw: dbRecord.nRaw,
+        pRaw: dbRecord.pRaw,
+        kRaw: dbRecord.kRaw
       },
       calibratedNpk,
-      unitMetadata: typeof unitMetadata === 'object' && unitMetadata !== null ? unitMetadata : {},
-      deviceTimestamp: timestamp,
-      receivedAt: new Date().toISOString()
+      unitMetadata: dbRecord.unitMetadata || {},
+      deviceTimestamp: dbRecord.deviceTimestamp ? dbRecord.deviceTimestamp.toISOString() : null,
+      receivedAt: dbRecord.receivedAt.toISOString()
     };
 
-    // Store in ring buffer (max 50 per device)
+    // Store in ring buffer (max 50 per device) for performance cache
     if (!sensorStore.byDevice.has(cleanDeviceId)) {
       sensorStore.byDevice.set(cleanDeviceId, []);
     }
@@ -191,7 +220,7 @@ router.post('/readings', authenticateSensorDevice, (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: 'Sensor reading accepted and validated successfully.',
+      message: 'Sensor reading accepted and persisted successfully.',
       reading
     });
   } catch (error) {
@@ -205,19 +234,48 @@ router.post('/readings', authenticateSensorDevice, (req, res) => {
 
 /**
  * 2. GET /api/sensors/status
- * Returns genuine sensor connection status and freshness.
+ * Returns genuine sensor connection status and freshness from PostgreSQL.
  */
-router.get('/status', (req, res) => {
+router.get('/status', async (req, res) => {
   try {
     const requestedDevice = req.query.deviceId ? String(req.query.deviceId).trim().toUpperCase() : null;
     const freshnessLimitMs = getFreshnessLimitMs();
 
     let targetReading = null;
-    if (requestedDevice) {
-      const history = sensorStore.byDevice.get(requestedDevice);
-      if (history && history.length > 0) targetReading = history[0];
-    } else {
-      targetReading = sensorStore.latestGlobal;
+    let registeredDevices = Array.from(sensorStore.byDevice.keys());
+
+    try {
+      const where = requestedDevice ? { deviceId: requestedDevice } : {};
+      const record = await prisma.sensorReading.findFirst({
+        where,
+        orderBy: { receivedAt: 'desc' }
+      });
+
+      if (record) {
+        targetReading = {
+          id: record.id,
+          deviceId: record.deviceId,
+          temperature: record.temperature,
+          humidity: record.humidity,
+          moisture: record.moisture,
+          deviceTimestamp: record.deviceTimestamp ? record.deviceTimestamp.toISOString() : null,
+          receivedAt: record.receivedAt.toISOString()
+        };
+      }
+
+      const distinctDevices = await prisma.sensorReading.findMany({
+        distinct: ['deviceId'],
+        select: { deviceId: true }
+      });
+      registeredDevices = distinctDevices.map(d => d.deviceId);
+    } catch (dbErr) {
+      console.warn('Database query in /status fallback to in-memory:', dbErr.message);
+      if (requestedDevice) {
+        const history = sensorStore.byDevice.get(requestedDevice);
+        if (history && history.length > 0) targetReading = history[0];
+      } else {
+        targetReading = sensorStore.latestGlobal;
+      }
     }
 
     if (!targetReading) {
@@ -228,7 +286,7 @@ router.get('/status', (req, res) => {
         latestReadingTime: null,
         receivedAt: null,
         freshnessLimitSeconds: Math.round(freshnessLimitMs / 1000),
-        registeredDevices: Array.from(sensorStore.byDevice.keys())
+        registeredDevices
       });
     }
 
@@ -265,19 +323,54 @@ router.get('/status', (req, res) => {
 
 /**
  * 3. GET /api/sensors/latest
- * Returns latest valid reading if available and fresh.
+ * Returns latest valid reading from PostgreSQL if available and fresh.
  */
-router.get('/latest', (req, res) => {
+router.get('/latest', async (req, res) => {
   try {
     const requestedDevice = req.query.deviceId ? String(req.query.deviceId).trim().toUpperCase() : null;
     const freshnessLimitMs = getFreshnessLimitMs();
 
     let targetReading = null;
-    if (requestedDevice) {
-      const history = sensorStore.byDevice.get(requestedDevice);
-      if (history && history.length > 0) targetReading = history[0];
-    } else {
-      targetReading = sensorStore.latestGlobal;
+    try {
+      const where = requestedDevice ? { deviceId: requestedDevice } : {};
+      const record = await prisma.sensorReading.findFirst({
+        where,
+        orderBy: { receivedAt: 'desc' }
+      });
+
+      if (record) {
+        const calibratedNpk = calibrateNpkReading({
+          nRaw: record.nRaw,
+          pRaw: record.pRaw,
+          kRaw: record.kRaw,
+          unitMetadata: record.unitMetadata || {}
+        });
+
+        targetReading = {
+          id: record.id,
+          deviceId: record.deviceId,
+          temperature: record.temperature,
+          humidity: record.humidity,
+          moisture: record.moisture,
+          rawNpk: {
+            nRaw: record.nRaw,
+            pRaw: record.pRaw,
+            kRaw: record.kRaw
+          },
+          calibratedNpk,
+          unitMetadata: record.unitMetadata || {},
+          deviceTimestamp: record.deviceTimestamp ? record.deviceTimestamp.toISOString() : null,
+          receivedAt: record.receivedAt.toISOString()
+        };
+      }
+    } catch (dbErr) {
+      console.warn('Database lookup in /latest fallback to in-memory:', dbErr.message);
+      if (requestedDevice) {
+        const history = sensorStore.byDevice.get(requestedDevice);
+        if (history && history.length > 0) targetReading = history[0];
+      } else {
+        targetReading = sensorStore.latestGlobal;
+      }
     }
 
     if (!targetReading) {

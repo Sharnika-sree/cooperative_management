@@ -6,3 +6,6 @@ frontend/node_modules/
 .env
 backend/ml/soil/FINAL_SOIL_SUITABILITY_DATASET.csv 
 *.csv 
+frontend/node_modules/ 
+node_modules/ 
+**/node_modules/ 

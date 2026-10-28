@@ -17,7 +17,8 @@ const RAW_ACTIONS = new Set([
   'WATER_REQUIREMENT',
   'NPK_REQUIREMENT',
   'TEMP_HUMIDITY',
-  'COMPARE_CROPS'
+  'COMPARE_CROPS',
+  'RESET_CONVERSATION'
 ]);
 
 const router = express.Router();
@@ -52,6 +53,24 @@ function extractDistrictFromText(text) {
     const regex = new RegExp(`\\b${d.toLowerCase()}\\b`, 'i');
     if (regex.test(clean) || clean.includes(d.toLowerCase())) {
       return d;
+    }
+  }
+  // Tamil locative case suffix deinflection for individual tokens (e.g. சேலத்தில் -> சேலம்)
+  const tokens = clean.split(/[\s,?!.:;]+/);
+  for (const t of tokens) {
+    const deinflected = t
+      .replace(/த்தில்$/, 'ம்')
+      .replace(/ட்டில்$/, 'டு')
+      .replace(/யில்$/, '')
+      .replace(/இல்$/, '')
+      .replace(/ல்$/, '');
+    if (soilService.districtAliases[deinflected]) {
+      return soilService.districtAliases[deinflected];
+    }
+    for (const [alias, standard] of Object.entries(soilService.districtAliases)) {
+      if (deinflected.includes(alias) || alias.includes(deinflected)) {
+        return standard;
+      }
     }
   }
   return null;
@@ -131,9 +150,9 @@ function processPredictionSession(query, sessionMemory, isTamil, mode) {
   const humMatch = normalizedQuery.match(/(?:humidity|hum\b|humidity\s*is|hum\s*[:=])\s*[:=]?\s*(\d+(?:\.\d+)?)/i);
   const moistMatch = normalizedQuery.match(/(?:moisture|moist\b|moisture\s*is|moist\s*[:=])\s*[:=]?\s*(\d+(?:\.\d+)?)/i);
 
-  const nScoreMatch = normalizedQuery.match(/(?:n_score|n\s*score|nitrogen\s*score|n\s*val|nitrogen\s*val|n\s*is|nitrogen\s*is|nitrogen|n\s*:|n\s+)\s*[:=]?\s*(1\.0|0\.5|0\.0|1|0|\d+(?:\.\d+)?)/i);
-  const pScoreMatch = normalizedQuery.match(/(?:p_score|p\s*score|phosphorus\s*score|p\s*val|phosphorus\s*val|p\s*is|phosphorus\s*is|phosphorus|p\s*:|p\s+)\s*[:=]?\s*(1\.0|0\.5|0\.0|1|0|\d+(?:\.\d+)?)/i);
-  const kScoreMatch = normalizedQuery.match(/(?:k_score|k\s*score|potassium\s*score|k\s*val|potassium\s*val|k\s*is|potassium\s*is|potassium|k\s*:|k\s+)\s*[:=]?\s*(1\.0|0\.5|0\.0|1|0|\d+(?:\.\d+)?)/i);
+  const nScoreMatch = normalizedQuery.match(/(?:n_score|n\s*score|nitrogen\s*score|n\s*val|nitrogen\s*val|nitrogen|n)\s*(?:is|[:=])?\s*(1\.0|0\.5|0\.0|1|0|\d+(?:\.\d+)?)/i);
+  const pScoreMatch = normalizedQuery.match(/(?:p_score|p\s*score|phosphorus\s*score|p\s*val|phosphorus\s*val|phosphorus|p)\s*(?:is|[:=])?\s*(1\.0|0\.5|0\.0|1|0|\d+(?:\.\d+)?)/i);
+  const kScoreMatch = normalizedQuery.match(/(?:k_score|k\s*score|potassium\s*score|k\s*val|potassium\s*val|potassium|k)\s*(?:is|[:=])?\s*(1\.0|0\.5|0\.0|1|0|\d+(?:\.\d+)?)/i);
 
   const npkScoresMatch = normalizedQuery.match(/npk\s*(?:scores|score|is|=|:)?\s*(\d+(?:\.\d+)?)\s*[,:\s]\s*(\d+(?:\.\d+)?)\s*[,:\s]\s*(\d+(?:\.\d+)?)/i);
 
@@ -175,15 +194,7 @@ function processPredictionSession(query, sessionMemory, isTamil, mode) {
       if (currentSession[field] === null || isNaN(currentSession[field])) {
         if (numIdx < nums.length) {
           const val = nums[numIdx];
-          if (field === 'N_score' || field === 'P_score' || field === 'K_score') {
-            if (val === 0 || val === 0.5 || val === 1) {
-              currentSession[field] = val;
-            } else {
-              // Invalid NPK value - keep as null so validation can report error
-            }
-          } else {
-            currentSession[field] = val;
-          }
+          currentSession[field] = val;
           numIdx++;
         }
       }
@@ -353,7 +364,24 @@ async function handleRawStructuredAction(action, language, sessionMemory, messag
   const mem = { ...sessionMemory, mode: 'normal', lastLanguage: isTamil ? 'Tamil' : 'English' };
 
   if (action === 'SELECT_DISTRICT') {
+    mem.district = null;
+    mem.crop = null;
+    mem.lastDistrict = null;
+    mem.lastCrop = null;
+    mem.pendingAction = null;
     const S = isTamil ? 'ஒரு மாவட்டத்தைத் தேர்ந்தெடுக்கவும்.' : 'Please select a district.';
+    return { response: S, ttsText: S, sessionMemory: mem };
+  }
+
+  if (action === 'RESET_CONVERSATION') {
+    mem.district = null;
+    mem.crop = null;
+    mem.lastDistrict = null;
+    mem.lastCrop = null;
+    mem.pendingAction = null;
+    const S = isTamil
+      ? 'வணக்கம். நான் உங்கள் விவசாய உதவியாளர். தரவுத்தளத்தில் உள்ள பயிர் மற்றும் மாவட்டத் தகவல்களைத் தருவேன்.'
+      : 'Hello. I am your agricultural assistant. I share verified crop and district information from our dataset.';
     return { response: S, ttsText: S, sessionMemory: mem };
   }
 
@@ -367,8 +395,13 @@ async function handleRawStructuredAction(action, language, sessionMemory, messag
     }
     mem.district = canonical;
     mem.lastDistrict = canonical;
+    mem.crop = null;
+    mem.lastCrop = null;
+    mem.pendingAction = null;
     const shown = displayDistrict(canonical, isTamil);
-    const msg = isTamil ? `${shown} தேர்ந்தெடுக்கப்பட்டது.` : `${shown} selected.`;
+    const msg = isTamil
+      ? `${shown} தேர்ந்தெடுக்கப்பட்டது. பயிர் பரிந்துரைகள் அல்லது மாவட்டத் தகவலைப் பார்க்கலாம்.`
+      : `${shown} selected. You can view crop recommendations or district details.`;
     return { response: msg, ttsText: msg, sessionMemory: mem };
   }
 
@@ -573,7 +606,8 @@ router.post('/', auth, async (req, res) => {
     try {
     const { message, language, sessionMemory, action, mode: reqMode } = req.body;
 
-    const prefLanguage = (language === 'ta' || language === 'Tamil') ? 'Tamil' : 'English';
+    const hasTamilScript = /[\u0B80-\u0BFF]/.test(message || '');
+    const prefLanguage = (language === 'ta' || language === 'Tamil' || (!language && hasTamilScript)) ? 'Tamil' : 'English';
     const isTamilLang = prefLanguage === 'Tamil';
 
     if (action && RAW_ACTIONS.has(action)) {
@@ -688,8 +722,12 @@ router.post('/', auth, async (req, res) => {
 
     // 2. Multi-turn Input Collection for Prediction Queries
     if ((isSuitabilityQuestion || isPredictionMode) && !predResult.isComplete) {
-      const cropStr = sessionState.CROPS ? sessionState.CROPS.charAt(0).toUpperCase() + sessionState.CROPS.slice(1) : (isTamil ? 'பயிர்' : 'crop');
-      const distStr = sessionState.district_name || (isTamil ? 'உங்கள் மாவட்டம்' : 'your district');
+      const cropStr = sessionState.CROPS 
+        ? (isTamil ? displayCrop(sessionState.CROPS, true) : sessionState.CROPS.charAt(0).toUpperCase() + sessionState.CROPS.slice(1)) 
+        : (isTamil ? 'பயிர்' : 'crop');
+      const distStr = sessionState.district_name 
+        ? (isTamil ? displayDistrict(sessionState.district_name, true) : sessionState.district_name) 
+        : (isTamil ? 'உங்கள் மாவட்டம்' : 'your district');
 
       let multiTurnMsg = '';
       if (isTamil) {
@@ -793,7 +831,8 @@ router.post('/', auth, async (req, res) => {
       if (recResult.success) {
         let responseText = '';
         if (isTamil) {
-          responseText = `🌾 **${recResult.district} மாவட்டத்திற்கு ஏற்ற சிறந்த பயிர்கள்:**\n\n${recResult.topCrops.slice(0, 5).map((c, i) => `${i + 1}. **${c.crop}** — நீர் தேவை: ${c.waterRequirement}`).join('\n')}\n\n💡 உங்கள் குறிப்பிட்ட நிலத்தின் NPK மற்றும் பாசன வசதியை பொறுத்து சிறந்த பயிரை தேர்வு செய்யலாம்.`;
+          const dName = displayDistrict(recResult.district, true);
+          responseText = `🌾 **${dName} மாவட்டத்திற்கு ஏற்ற சிறந்த பயிர்கள்:**\n\n${recResult.topCrops.slice(0, 5).map((c, i) => `${i + 1}. **${displayCrop(c.crop, true)}** — நீர் தேவை: ${levelWord(c.waterRequirement, true)}`).join('\n')}\n\n💡 உங்கள் குறிப்பிட்ட நிலத்தின் NPK மற்றும் பாசன வசதியை பொறுத்து சிறந்த பயிரை தேர்வு செய்யலாம்.`;
         } else {
           responseText = `🌾 **Recommended Crops for ${recResult.district}:**\n\n${recResult.topCrops.slice(0, 6).map((c, i) => `${i + 1}. **${c.crop.charAt(0).toUpperCase() + c.crop.slice(1)}** (Water requirement: ${c.waterRequirement})`).join('\n')}`;
         }

@@ -28,7 +28,7 @@ const SoilSuitability = () => {
   })
 
   // IoT Sensor State
-  const [deviceId, setDeviceId] = useState('SOIL-001')
+  const [deviceId, setDeviceId] = useState('')
   const [sensorStatus, setSensorStatus] = useState(null)
   const [iotReading, setIotReading] = useState(null)
   const [fetchingIot, setFetchingIot] = useState(false)
@@ -42,6 +42,16 @@ const SoilSuitability = () => {
   useEffect(() => {
     fetchMetadata()
   }, [])
+
+  useEffect(() => {
+    if (mode === 'iot') {
+      fetchLatestIot()
+      const timer = setInterval(() => {
+        fetchLatestIot()
+      }, 10000)
+      return () => clearInterval(timer)
+    }
+  }, [mode, deviceId])
 
   const fetchMetadata = async () => {
     try {
@@ -62,11 +72,12 @@ const SoilSuitability = () => {
     try {
       setFetchingIot(true)
       setIotError('')
-      const status = await fetchSensorStatus(deviceId)
+      const targetDevice = deviceId ? deviceId.trim() : null
+      const status = await fetchSensorStatus(targetDevice)
       setSensorStatus(status)
 
       if (status.connected) {
-        const res = await fetchLatestReading(deviceId)
+        const res = await fetchLatestReading(targetDevice)
         if (res && res.reading) {
           setIotReading(res.reading)
           setFormData(prev => ({
@@ -88,7 +99,7 @@ const SoilSuitability = () => {
     } catch (err) {
       console.error('Failed to fetch IoT sensor reading:', err)
       setIotReading(null)
-      setIotError('Could not retrieve telemetry from selected device. Ensure sensor service is online.')
+      setIotError('Could not retrieve telemetry from sensor service.')
     } finally {
       setFetchingIot(false)
     }
@@ -221,16 +232,15 @@ const SoilSuitability = () => {
                 </button>
               </div>
 
-              <div className="flex items-center space-x-3">
+              <div className="flex items-center space-x-2">
                 <label className="text-xs font-bold text-gray-700">Device ID:</label>
-                <select
+                <input
+                  type="text"
                   value={deviceId}
                   onChange={(e) => setDeviceId(e.target.value)}
-                  className="input-field text-xs py-1.5 px-3 bg-white w-48"
-                >
-                  <option value="SOIL-001">SOIL-001 (Field Unit A)</option>
-                  <option value="SOIL-002">SOIL-002 (Greenhouse)</option>
-                </select>
+                  placeholder="e.g. soil-device-001 (or blank for active)"
+                  className="input-field text-xs py-1 px-2.5 bg-white w-52"
+                />
               </div>
 
               {iotReading && sensorStatus?.connected ? (
@@ -313,7 +323,7 @@ const SoilSuitability = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1.5">
+                <label className="block text-xs font-bold text-gray-700 mb-1">
                   Soil Type
                 </label>
                 <select
@@ -322,12 +332,12 @@ const SoilSuitability = () => {
                   onChange={handleInputChange}
                   className="input-field text-xs py-2"
                 >
-                  <option value="Red Soil">Red Soil (செம்மண்)</option>
-                  <option value="Black Soil">Black Soil (கரிசல் மண்)</option>
-                  <option value="Alluvial Soil">Alluvial Soil (வண்டல் மண்)</option>
-                  <option value="Clay Loam">Clay Loam (களிமண்)</option>
-                  <option value="Sandy Loam">Sandy Loam (மணற்பாங்கான மண்)</option>
-                  <option value="Laterite Soil">Laterite Soil (சரளை மண்)</option>
+                  <option value="Red Soil">Red Soil</option>
+                  <option value="Black Soil">Black Soil</option>
+                  <option value="Alluvial Soil">Alluvial Soil</option>
+                  <option value="Clay Loam">Clay Loam</option>
+                  <option value="Sandy Loam">Sandy Loam</option>
+                  <option value="Laterite Soil">Laterite Soil</option>
                 </select>
               </div>
 
@@ -453,11 +463,21 @@ const SoilSuitability = () => {
               {/* Header Badge */}
               <div className="flex items-center justify-between pb-4 border-b border-gray-100">
                 <div>
-                  <span className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider block">Suitability Result</span>
-                  <h3 className="text-xl font-black text-gray-900 capitalize">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider block">CatBoost ML Prediction</span>
+                    <span className="text-[10px] bg-emerald-50 text-emerald-800 font-bold px-2 py-0.5 rounded border border-emerald-200">
+                      Model: {result.modelUsed || 'CatBoostClassifier'}
+                    </span>
+                  </div>
+                  <h3 className="text-xl font-black text-gray-900 capitalize mt-0.5">
                     {result.crop} in {result.district}
                   </h3>
-                  <span className="text-xs text-gray-500 font-medium">Soil Type: {result.soilType}</span>
+                  <div className="flex items-center space-x-2 text-xs text-gray-500 font-medium">
+                    <span>Soil Type: {result.soilType}</span>
+                    {result.confidence && (
+                      <span className="text-gray-400">• Confidence: {Math.round(result.confidence * 100)}%</span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="text-right">

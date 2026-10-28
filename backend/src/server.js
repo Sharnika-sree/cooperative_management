@@ -76,6 +76,15 @@ app.use((req, res) => {
   });
 });
 
+// Central error handler (catches JSON parsing errors and unexpected exceptions)
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    return res.status(400).json({ error: 'Malformed JSON payload' });
+  }
+  console.error('Unhandled server error:', err);
+  res.status(500).json({ error: 'Internal Server Error', message: err.message });
+});
+
 const PORT = process.env.PORT || 5000;
 
 async function verifyDatabaseConnection() {
@@ -92,6 +101,6 @@ async function verifyDatabaseConnection() {
 
 verifyDatabaseConnection();
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
 });

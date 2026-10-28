@@ -42,7 +42,20 @@ export function fetchSoilMeta() {
 
 // TTS must speak ONLY the generated answer text — never markup or UI text.
 export function cleanTtsText(text) {
-  return String(text || '').replace(/[*#_`]/g, '').trim()
+  if (!text || typeof text !== 'string') return ''
+  return text
+    // Remove markdown links [text](url) -> text
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    // Remove bold, italic, code formatting
+    .replace(/[*#_`~]/g, '')
+    // Remove decorative emojis that TTS synthesizers stutter on
+    .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
+    // Convert bullet points to natural pauses
+    .replace(/^\s*[•\-\*]\s+/gm, '')
+    // Normalize multiple newlines or spaces to natural pauses
+    .replace(/\n+/g, '. ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 // Build a clean, concise voice summary from a soil prediction result.

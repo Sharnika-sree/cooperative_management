@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { getAuthErrorMessage } from '../utils/authErrorMessage'
 import { Sprout } from 'lucide-react'
 
 const Register = () => {
@@ -21,7 +22,7 @@ const Register = () => {
       await register(formData)
       navigate('/')
     } catch (err) {
-      setError(err.response?.data?.error || 'Registration failed')
+      setError(getAuthErrorMessage(err, 'Registration failed'))
     }
   }
 

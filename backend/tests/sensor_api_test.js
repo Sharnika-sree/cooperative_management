@@ -75,9 +75,12 @@ async function runSensorTests() {
   await new Promise(r => setTimeout(r, 300));
 
   try {
-    // Clear in-memory sensor store for clean test baseline
+    // Clear in-memory and DB sensor store for clean test baseline
     sensorStore.byDevice.clear();
     sensorStore.latestGlobal = null;
+    const { PrismaClient } = require('@prisma/client');
+    const prisma = new PrismaClient();
+    await prisma.sensorReading.deleteMany({ where: { deviceId: { startsWith: 'TEST-' } } });
 
     console.log('\n--- TEST 1: Initial Sensor Status (Zero Fake Readings) ---');
     const status1 = await makeRequest({ path: '/api/sensors/status' });

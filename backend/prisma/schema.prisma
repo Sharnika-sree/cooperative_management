@@ -143,3 +143,22 @@ model Crop {
   farmer    Farmer   @relation(fields: [farmerId], references: [id], onDelete: Cascade)
 }
 
+model SensorReading {
+  id                String    @id @default(uuid())
+  deviceId          String
+  temperature       Float
+  humidity          Float
+  moisture          Float
+  nRaw              Float?
+  pRaw              Float?
+  kRaw              Float?
+  isCalibrated      Boolean   @default(false)
+  calibrationStatus String    @default("UNCALIBRATED")
+  unitMetadata      Json?
+  deviceTimestamp   DateTime?
+  receivedAt        DateTime  @default(now())
+
+  @@index([deviceId, receivedAt(sort: Desc)])
+  @@index([receivedAt(sort: Desc)])
+}
+

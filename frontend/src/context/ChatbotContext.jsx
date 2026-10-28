@@ -54,6 +54,33 @@ export function ChatbotProvider({ children }) {
   const [metaError, setMetaError] = useState('')
   const recognitionRef = useRef(null)
   const lastSendRef = useRef('')
+  const wasVoiceInputRef = useRef(false)
+  const [availableVoices, setAvailableVoices] = useState([])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
+
+    const loadVoices = () => {
+      try {
+        const v = window.speechSynthesis.getVoices()
+        if (v && v.length > 0) {
+          setAvailableVoices(v)
+        }
+      } catch (e) {
+        console.warn('Voice loading error:', e)
+      }
+    }
+
+    loadVoices()
+    window.speechSynthesis.onvoiceschanged = loadVoices
+
+    return () => {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel()
+        window.speechSynthesis.onvoiceschanged = null
+      }
+    }
+  }, [])
 
   const speechLang = lastLanguage === 'Tamil' ? 'ta-IN' : 'en-IN'
   const strings = rawDataStrings(lastLanguage)
@@ -82,6 +109,7 @@ export function ChatbotProvider({ children }) {
       }
       const transcript = finalTranscript || interimTranscript
       if (transcript) {
+        wasVoiceInputRef.current = true
         setInput(transcript)
         setMode((currentMode) => {
           if (currentMode === 'prediction') {
@@ -130,22 +158,68 @@ export function ChatbotProvider({ children }) {
 
   const speakMessage = (msg, index) => {
     const S = rawDataStrings(lastLanguage)
-    if (!('speechSynthesis' in window)) {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
       alert(S.ttsUnsupported)
       return
     }
+
     window.speechSynthesis.cancel()
+
     if (speakingIndex === index) {
       setSpeakingIndex(null)
       return
     }
-    const textToSpeak = cleanTtsText(msg.ttsText || '')
+
+    // Always use the rendered answer text inside the chatbot response text box
+    const textToSpeak = cleanTtsText(msg.content || msg.ttsText || '')
     if (!textToSpeak) return
+
+    const voices = availableVoices.length > 0 ? availableVoices : window.speechSynthesis.getVoices()
     const utterance = new SpeechSynthesisUtterance(textToSpeak)
-    utterance.lang = speechLang
+
+    if (lastLanguage === 'Tamil') {
+      // Find a Tamil-compatible voice (ta-IN, ta, Tamil, Valluvar)
+      const tamilVoice = voices.find((v) => {
+        const lang = (v.lang || '').toLowerCase().replace('_', '-')
+        const name = (v.name || '').toLowerCase()
+        return lang === 'ta-in' || lang === 'ta' || lang.startsWith('ta-') || name.includes('tamil') || name.includes('valluvar')
+      })
+
+      if (tamilVoice) {
+        utterance.voice = tamilVoice
+        utterance.lang = tamilVoice.lang || 'ta-IN'
+      } else {
+        // Required Tamil voice is unavailable in the browser / OS
+        // Explicitly block English voice fallback to prevent reading numbers only
+        setSpeakingIndex(null)
+        setVoiceNotice('தமிழ் குரல் உலாவியில் கிடைக்கவில்லை. முழுமையான தமிழ் குரல் கேட்க Windows Settings > Time & Language > Speech இல் Tamil (India) குரலை நிறுவவும்.')
+        setTimeout(() => setVoiceNotice(''), 6000)
+        return
+      }
+    } else {
+      // English voice selection strategy
+      const enVoice = voices.find((v) => {
+        const lang = (v.lang || '').toLowerCase().replace('_', '-')
+        return lang === 'en-in' || lang === 'en-us' || lang.startsWith('en')
+      })
+      if (enVoice) {
+        utterance.voice = enVoice
+        utterance.lang = enVoice.lang || 'en-IN'
+      } else {
+        utterance.lang = 'en-US'
+      }
+    }
+
+    utterance.rate = 0.95
+    utterance.pitch = 1.0
+
     utterance.onstart = () => setSpeakingIndex(index)
     utterance.onend = () => setSpeakingIndex(null)
-    utterance.onerror = () => setSpeakingIndex(null)
+    utterance.onerror = (e) => {
+      console.warn('Speech synthesis error:', e)
+      setSpeakingIndex(null)
+    }
+
     window.speechSynthesis.speak(utterance)
   }
 
@@ -173,20 +247,26 @@ export function ChatbotProvider({ children }) {
 
     if (!resolvedAction && payloadText && activeMode !== 'prediction') {
       const asAction = detectRawAction(payloadText, lastLanguage)
-      if (asAction) resolvedAction = asAction
-      else if (awaitingDistrict) {
+      if (asAction) {
+        resolvedAction = asAction
+      } else {
         const d = matchDistrictValue(payloadText)
         if (d) {
           resolvedAction = 'SET_DISTRICT'
           payloadText = d
-        }
-      } else if (awaitingCrop) {
-        const c = matchCropValue(payloadText)
-        if (c) {
-          resolvedAction = 'SET_CROP'
-          payloadText = c
+        } else if (awaitingCrop || pendingAction) {
+          const c = matchCropValue(payloadText)
+          if (c) {
+            resolvedAction = 'SET_CROP'
+            payloadText = c
+          }
         }
       }
+    }
+
+    if (resolvedAction === 'RESET_CONVERSATION') {
+      resetContext()
+      return
     }
 
     const isStructured = resolvedAction && RAW_ACTIONS.has(resolvedAction)
@@ -230,13 +310,18 @@ export function ChatbotProvider({ children }) {
         action: isStructured ? resolvedAction : undefined
       })
 
+      const botMsg = {
+        role: 'bot',
+        content: data.response,
+        ttsText: data.ttsText,
+        soilResult: data.soilResult
+      }
       setMessages((prev) => {
-        const next = [...prev, {
-          role: 'bot',
-          content: data.response,
-          ttsText: data.ttsText,
-          soilResult: data.soilResult
-        }]
+        const next = [...prev, botMsg]
+        if (wasVoiceInputRef.current) {
+          wasVoiceInputRef.current = false
+          setTimeout(() => speakMessage(botMsg, next.length - 1), 100)
+        }
         return next
       })
 
@@ -337,7 +422,19 @@ export function ChatbotProvider({ children }) {
 
   const selectDistrict = async (districtValue) => {
     if (!districtValue) {
+      setDistrict(null)
+      setCrop(null)
       setAwaitingDistrict(true)
+      setAwaitingCrop(false)
+      setPendingAction(null)
+      setSessionMemory((prev) => ({
+        ...prev,
+        district: null,
+        crop: null,
+        lastDistrict: null,
+        lastCrop: null,
+        pendingAction: null
+      }))
       await send('', 'normal', 'SELECT_DISTRICT', { silentUser: true })
       return
     }

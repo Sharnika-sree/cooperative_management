@@ -64,7 +64,23 @@ export const TAMIL_CROPS = {
   'முட்டைக்கோஸ்': 'Cabbage', 'காலிஃபிளவர்': 'cauliflower',
   'சேனைக்கிழங்கு': 'elephant foot yam', 'எள்': 'gingely',
   'சோயா': 'soyabean', 'சூரியகாந்தி': 'sunflower',
-  'சர்க்கரைவள்ளிக்கிழங்கு': 'sweet potato', 'தர்பூசணி': 'watermelon'
+  'சர்க்கரைவள்ளிக்கிழங்கு': 'sweet potato', 'தர்பூசணி': 'watermelon',
+  'முருங்கை': 'annual moringa', 'சாம்பல் பூசணி': 'ash gourd', 'வெண்பூசணி': 'ash gourd',
+  'பீட்ரூட்': 'beetroot', 'கொண்டைக்கடலை': 'bengalgram',
+  'பாகற்காய்': 'bitter gourd', 'சுரைக்காய்': 'bottle gourd',
+  'குடைமிளகாய்': 'capsicum', 'கேரட்': 'carrot',
+  'ஆமணக்கு': 'castor', 'சௌசௌ': 'chowchow',
+  'கொத்தவரங்காய்': 'cluster bean', 'காராமணி': 'cowpea',
+  'வெள்ளரிக்காய்': 'cucumber', 'பீன்ஸ்': 'french bean',
+  'சணல்': 'jute', 'குதிரைவாலி': 'kudiraivali',
+  'முலாம் பழம்': 'muskmelon', 'பனிவரகு': 'panivaragu',
+  'பட்டாணி': 'peas', 'பூசணிக்காய்': 'pumpkin', 'பரங்கிக்காய்': 'pumpkin',
+  'முள்ளங்கி': 'radish', 'துவரை': 'redgram',
+  'பீர்க்கங்காய்': 'ribbed gourd', 'சாமை': 'samai',
+  'புடலங்காய்': 'snake gourd', 'சர்க்கரை பீட்ரூட்': 'sugarbeet',
+  'தினை': 'thinai', 'டிண்டா': 'tinda',
+  'தக்காளி': 'tomato', 'வரகு': 'varagu',
+  'காராமணி பயறு': 'vegetable cowpea', 'பயத்தங்காய்': 'vegetable cowpea'
 };
 
 const EN_TO_TAMIL_DISTRICT = {};
@@ -80,7 +96,8 @@ export const RAW_ACTIONS = new Set([
   'SELECT_DISTRICT', 'SET_DISTRICT', 'SELECT_CROP', 'SET_CROP',
   'CROP_RECOMMENDATIONS', 'DISTRICT_INFO', 'CROP_INFO', 'CROP_REQUIREMENTS',
   'WATER_REQUIREMENT', 'NPK_REQUIREMENT', 'TEMP_HUMIDITY',
-  'TEMPERATURE_REQUIREMENT', 'HUMIDITY_REQUIREMENT', 'COMPARE_CROPS'
+  'TEMPERATURE_REQUIREMENT', 'HUMIDITY_REQUIREMENT', 'COMPARE_CROPS',
+  'RESET_CONVERSATION'
 ]);
 
 export function displayDistrictName(english, language) {
@@ -124,7 +141,7 @@ export function canonicalizeForm(fields) {
 }
 
 export function emptyPredictionForm() {
-  return { district: '', crop: '', temperature: '', humidity: '', moisture: '', n: '', p: '', k: '' };
+  return { district: '', crop: '', soilType: '', temperature: '', humidity: '', moisture: '', n: '', p: '', k: '' };
 }
 
 // ============================================================================
@@ -167,7 +184,10 @@ export const RAW_DATA_STRINGS = {
     modeData: 'Dataset',
     modePredict: 'Predict',
     title: 'Smart Coop Assistant',
-    subtitle: 'Crop and district help'
+    subtitle: 'Crop and district help',
+    changeDistrict: 'Change District',
+    newQuery: 'New Query',
+    resetBtn: 'Reset'
   },
   Tamil: {
     greeting: 'வணக்கம். நான் உங்கள் விவசாய உதவியாளர். தரவுத்தளத்தில் உள்ள பயிர் மற்றும் மாவட்டத் தகவல்களைத் தருவேன்.',
@@ -203,7 +223,10 @@ export const RAW_DATA_STRINGS = {
     modeData: 'தரவு',
     modePredict: 'கணிப்பு',
     title: 'விவசாய உதவியாளர்',
-    subtitle: 'பயிர் மற்றும் மாவட்ட உதவி'
+    subtitle: 'பயிர் மற்றும் மாவட்ட உதவி',
+    changeDistrict: 'மாவட்டம் மாற்றுக',
+    newQuery: 'புதிய கேள்வி',
+    resetBtn: 'மீட்டமை'
   }
 };
 
@@ -320,7 +343,9 @@ export function getContextualActions(context, language) {
 
   const actions = [
     { action: 'CROP_RECOMMENDATIONS', label: S.cropRecommendations, message: S.cropRecommendations },
-    { action: 'DISTRICT_INFO', label: S.districtInfo, message: S.districtInfo }
+    { action: 'DISTRICT_INFO', label: S.districtInfo, message: S.districtInfo },
+    { action: 'SELECT_DISTRICT', label: S.changeDistrict || 'Change District' },
+    { action: 'RESET_CONVERSATION', label: S.newQuery || 'New Query' }
   ];
 
   if (hasCrop) {
@@ -348,7 +373,8 @@ export function getActionLabel(action, language) {
     TEMP_HUMIDITY: S.tempHumidity,
     TEMPERATURE_REQUIREMENT: S.temperatureRequirement,
     HUMIDITY_REQUIREMENT: S.humidityRequirement,
-    COMPARE_CROPS: S.compareCrops
+    COMPARE_CROPS: S.compareCrops,
+    RESET_CONVERSATION: S.newQuery
   };
   return map[action] || action;
 }
@@ -385,8 +411,23 @@ export function detectRawAction(text, language) {
     [S.humidityRequirement, 'HUMIDITY_REQUIREMENT'],
     [S.tempHumidity, 'TEMP_HUMIDITY'],
     [S.compareCrops, 'COMPARE_CROPS'],
+    [S.changeDistrict, 'SELECT_DISTRICT'],
+    [S.newQuery, 'RESET_CONVERSATION'],
+    [S.resetBtn, 'RESET_CONVERSATION'],
     ['District', 'SELECT_DISTRICT'],
     ['மாவட்டம்', 'SELECT_DISTRICT'],
+    ['Change District', 'SELECT_DISTRICT'],
+    ['change district', 'SELECT_DISTRICT'],
+    ['different district', 'SELECT_DISTRICT'],
+    ['switch district', 'SELECT_DISTRICT'],
+    ['மாவட்டம் மாற்றுக', 'SELECT_DISTRICT'],
+    ['வேற மாவட்டம்', 'SELECT_DISTRICT'],
+    ['வேறு மாவட்டம்', 'SELECT_DISTRICT'],
+    ['New Query', 'RESET_CONVERSATION'],
+    ['Reset', 'RESET_CONVERSATION'],
+    ['புதிய கேள்வி', 'RESET_CONVERSATION'],
+    ['புதிய உரையாடல்', 'RESET_CONVERSATION'],
+    ['மீட்டமை', 'RESET_CONVERSATION'],
     ['Crop Recommendations', 'CROP_RECOMMENDATIONS'],
     ['Water Requirement', 'WATER_REQUIREMENT'],
     ['Which crop?', 'SELECT_CROP']

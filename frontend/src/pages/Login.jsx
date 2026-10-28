@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { getAuthErrorMessage } from '../utils/authErrorMessage'
 import { Sprout } from 'lucide-react'
 
 const Login = () => {
@@ -27,7 +28,7 @@ const Login = () => {
       }
     } catch (err) {
       console.error('Login error:', err)
-      setError(err.response?.data?.error || err.message || 'Invalid credentials')
+      setError(getAuthErrorMessage(err, 'Invalid credentials'))
     }
   }
 

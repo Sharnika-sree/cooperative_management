@@ -1,0 +1,145 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+
+
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      String   @default("FARMER")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  farmerProfile Farmer?
+}
+
+model Farmer {
+  id               String   @id @default(uuid())
+  userId           String   @unique
+  membershipId     String   @unique
+  name             String
+  mobileNumber     String
+  village          String
+  landSize         Float
+  crop             String?
+  age              Int?
+  gender           String?
+  address          String?
+  district         String?
+  landUnit         String?  @default("Acres")
+  farmingType      String?
+  irrigationType   String?
+  registrationDate DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user            User                   @relation(fields: [userId], references: [id])
+  transactions    InventoryTransaction[]
+  serviceRequests ServiceRequest[]
+  distributions   Distribution[]
+  crops           Crop[]
+}
+
+model Inventory {
+  id          String        @id @default(uuid())
+  name        String
+  type        String
+  quantity    Float
+  unit        String
+  minStock    Float
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  transactions InventoryTransaction[]
+  distributions Distribution[]
+}
+
+model InventoryTransaction {
+  id          String   @id @default(uuid())
+  inventoryId String
+  farmerId    String
+  quantity    Float
+  type        String
+  date        DateTime @default(now())
+
+  inventory   Inventory @relation(fields: [inventoryId], references: [id])
+  farmer      Farmer    @relation(fields: [farmerId], references: [id])
+}
+
+model Scheme {
+  id                String   @id @default(uuid())
+  title             String
+  description       String
+  eligibilityRules  String
+  requiredDocuments String
+  deadline          DateTime
+  benefits          String
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model Announcement {
+  id        String   @id @default(uuid())
+  title     String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model WarehouseData {
+  id          String   @id @default(uuid())
+  temperature Float
+  humidity    Float
+  timestamp   DateTime @default(now())
+}
+
+model ServiceRequest {
+  id          String   @id @default(uuid())
+  farmerId    String
+  type        String
+  description String
+  quantity    String?
+  status      String   @default("PENDING")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  farmer      Farmer   @relation(fields: [farmerId], references: [id])
+}
+
+model Distribution {
+  id            String   @id @default(uuid())
+  farmerId      String
+  inventoryId   String
+  quantity      Float
+  distributedBy String
+  status        String   @default("COMPLETED")
+  distributedAt DateTime @default(now())
+
+  farmer        Farmer    @relation(fields: [farmerId], references: [id])
+  inventory     Inventory @relation(fields: [inventoryId], references: [id])
+}
+
+model ChatbotConfig {
+  id        String   @id @default(uuid())
+  prompt    String   @default("You are a helpful assistant for a Cooperative Society Management System. Use the following context to answer the user's question accurately.")
+  knowledge String   @default("This cooperative society provides seeds, fertilizers, and pesticide services. We support PM-KISAN, PMFBY, and Drip Irrigation Subsidy schemes.")
+  updatedAt DateTime @updatedAt
+}
+
+model Crop {
+  id        String   @id @default(uuid())
+  name      String
+  farmerId  String
+  farmer    Farmer   @relation(fields: [farmerId], references: [id], onDelete: Cascade)
+}
+
